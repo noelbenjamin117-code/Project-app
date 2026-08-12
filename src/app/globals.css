@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink text-white antialiased;
+  }
+
+  /* The member surface is used one-handed on a phone in a noisy gym: no
+     accidental text selection while tapping, and no iOS tap highlight. */
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-edge bg-panel;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold
+           transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand/90;
+  }
+
+  .btn-secondary {
+    @apply btn border border-edge bg-transparent text-white hover:bg-white/5;
+  }
+
+  .btn-danger {
+    @apply btn border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-edge bg-ink px-3 py-3 text-white
+           placeholder:text-white/30 focus:border-brand focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-white/70;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+}
+
+/* Safe-area padding so the bottom nav clears the iPhone home indicator when
+   the app is installed to the home screen. */
+.pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+}

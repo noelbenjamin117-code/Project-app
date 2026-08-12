@@ -1,0 +1,442 @@
+// Gym management app — single gym, one timezone, ~200 members.
+// Deliberately no gym_id / tenant columns anywhere: this serves one gym.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth & roles
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  COACH
+  MEMBER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  // Roles are hierarchical: OWNER can do everything a COACH can, and a COACH
+  // books classes and logs scores exactly like a MEMBER.
+  role         Role     @default(MEMBER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookings           Booking[]
+  coachedClasses     ClassInstance[]     @relation("ClassCoach")
+  strikes            StrikeEvent[]       @relation("StrikeMember")
+  forgivenStrikes    StrikeEvent[]       @relation("StrikeForgiver")
+  suspensionLifts    SuspensionOverride[] @relation("OverrideMember")
+  liftedSuspensions  SuspensionOverride[] @relation("OverrideActor")
+  results            Result[]
+  liftResults        LiftResult[]
+  authoredWods       WodDefinition[]
+  checkedInBookings  Booking[]           @relation("CheckedInBy")
+  cancelledClasses   ClassInstance[]     @relation("ClassCanceller")
+  notifications      Notification[]
+
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// Schedule
+// ---------------------------------------------------------------------------
+
+enum CancelPolicyType {
+  ABSOLUTE // by a wall-clock time on the previous calendar day
+  RELATIVE // up to N hours before class start
+  NONE     // any time up to class start
+}
+
+model ClassTemplate {
+  id       String @id @default(cuid())
+  name     String
+  /// 1 = Monday … 7 = Sunday (ISO weekday, matches Luxon)
+  dayOfWeek Int
+  /// Wall-clock local start time, "HH:mm". Never store an offset here — that
+  /// is what keeps a 6am class at 6am across a DST boundary.
+  startTimeLocal  String
+  durationMinutes Int    @default(60)
+  capacity        Int
+
+  defaultCoachId String?
+  cancelPolicyType        CancelPolicyType
+  /// ABSOLUTE only: wall-clock time on the PREVIOUS day, "HH:mm".
+  cancelAbsoluteTimeLocal String?
+  /// RELATIVE only: hours before class start.
+  cancelRelativeHours     Int?
+
+  /// Local dates (yyyy-MM-dd) bounding when this template generates classes.
+  activeFrom  String
+  activeUntil String?
+  archived    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  instances ClassInstance[]
+
+  @@index([dayOfWeek, archived])
+}
+
+enum ClassStatus {
+  SCHEDULED
+  CANCELLED
+}
+
+model ClassInstance {
+  id         String  @id @default(cuid())
+  templateId String?
+  template   ClassTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  name String
+  /// Local calendar date, "yyyy-MM-dd". Paired with templateId for idempotent
+  /// generation, and used for "today" lookups without timezone gymnastics.
+  date String
+  startsAt DateTime
+  endsAt   DateTime
+
+  // Snapshotted from the template at generation time. Editing a template must
+  // not silently change the deal for people who already booked.
+  capacity                Int
+  coachId                 String?
+  coach                   User?   @relation("ClassCoach", fields: [coachId], references: [id], onDelete: SetNull)
+  cancelPolicyType        CancelPolicyType
+  cancelAbsoluteTimeLocal String?
+  cancelRelativeHours     Int?
+  /// Precomputed free-cancel deadline for the class as a whole (UTC).
+  /// Per-booking grace windows are applied on top of this at read time.
+  cancelDeadlineAt        DateTime
+
+  status           ClassStatus @default(SCHEDULED)
+  cancelledAt      DateTime?
+  cancelledReason  String?
+  cancelledById    String?
+  cancelledBy      User?       @relation("ClassCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings      Booking[]
+  results       Result[]
+  scheduledWods ScheduledWodClass[]
+
+  @@unique([templateId, date])
+  @@index([date])
+  @@index([startsAt])
+}
+
+// ---------------------------------------------------------------------------
+// Booking, waitlist, attendance
+// ---------------------------------------------------------------------------
+
+enum BookingStatus {
+  BOOKED
+  WAITLISTED
+  CANCELLED
+}
+
+enum BookingSource {
+  SELF
+  COACH
+  WALK_IN
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  classInstanceId String
+  classInstance   ClassInstance @relation(fields: [classInstanceId], references: [id], onDelete: Cascade)
+  memberId        String
+  member          User          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  status BookingStatus
+  source BookingSource @default(SELF)
+
+  bookedAt DateTime @default(now())
+  /// Set when the member joins the waitlist. Waitlist order is
+  /// (waitlistedAt, id) — there is no position column to renumber.
+  waitlistedAt DateTime?
+  /// Set when promoted off the waitlist; drives the promotion grace window.
+  promotedAt   DateTime?
+
+  cancelledAt DateTime?
+  lateCancel  Boolean   @default(false)
+
+  checkedInAt   DateTime?
+  checkedInById String?
+  checkedInBy   User?     @relation("CheckedInBy", fields: [checkedInById], references: [id], onDelete: SetNull)
+  noShow        Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  strikes StrikeEvent[]
+
+  // A partial unique index on (classInstanceId, memberId) WHERE status <>
+  // 'CANCELLED' is added by migration — Prisma cannot express it. It stops a
+  // double-book while still allowing re-booking after a cancel.
+  @@index([classInstanceId, status])
+  @@index([memberId, status])
+  @@index([classInstanceId, status, waitlistedAt, id])
+}
+
+// ---------------------------------------------------------------------------
+// Strikes & suspension
+//
+// Only events are stored. Suspension is always derived from them, so it
+// expires on its own and can never go stale.
+// ---------------------------------------------------------------------------
+
+enum StrikeType {
+  LATE_CANCEL
+  NO_SHOW
+}
+
+model StrikeEvent {
+  id        String     @id @default(cuid())
+  memberId  String
+  member    User       @relation("StrikeMember", fields: [memberId], references: [id], onDelete: Cascade)
+  bookingId String?
+  booking   Booking?   @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  type StrikeType
+  /// Snapshotted from config so changing the weights later never rewrites
+  /// history for strikes already served.
+  weight     Int
+  occurredAt DateTime
+
+  // Forgiveness is recorded, never deleted — this is the audit trail.
+  forgivenAt      DateTime?
+  forgivenById    String?
+  forgivenBy      User?     @relation("StrikeForgiver", fields: [forgivenById], references: [id], onDelete: SetNull)
+  forgivenReason  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, occurredAt])
+  @@unique([bookingId, type])
+}
+
+model SuspensionOverride {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation("OverrideMember", fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// Any computed suspension that started at or before this instant is
+  /// considered lifted. The suspension itself stays computed.
+  liftedAt DateTime
+  byUserId String
+  by       User   @relation("OverrideActor", fields: [byUserId], references: [id], onDelete: Cascade)
+  reason   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, liftedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Programming
+// ---------------------------------------------------------------------------
+
+enum WodType {
+  AMRAP
+  EMOM
+  FOR_TIME
+  RFT
+  STRENGTH
+}
+
+enum ScoreType {
+  TIME
+  ROUNDS_REPS
+  REPS
+  LOAD
+}
+
+enum ScalingLevel {
+  RX_PLUS
+  RX
+  SCALED
+}
+
+model Movement {
+  id            String  @id @default(cuid())
+  name          String  @unique
+  isBarbellLift Boolean @default(false)
+
+  liftResults LiftResult[]
+}
+
+model WodDefinition {
+  id   String  @id @default(cuid())
+  name String?
+  /// Benchmarks (Fran, Cindy, Grace…) recur and are comparable over time.
+  /// Daily one-offs are still definitions, they are just never rescheduled.
+  isBenchmark Boolean @default(false)
+
+  type      WodType
+  scoreType ScoreType
+  /// For Time / RFT with a cap: capped athletes rank after all finishers,
+  /// ordered by reps completed.
+  timeCapSeconds Int?
+  description    String
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scalingOptions WodScalingOption[]
+  scheduled      ScheduledWod[]
+  results        Result[]
+
+  @@index([isBenchmark])
+}
+
+model WodScalingOption {
+  id              String        @id @default(cuid())
+  wodDefinitionId String
+  wodDefinition   WodDefinition @relation(fields: [wodDefinitionId], references: [id], onDelete: Cascade)
+  level           ScalingLevel
+  description     String
+
+  @@unique([wodDefinitionId, level])
+}
+
+model ScheduledWod {
+  id              String        @id @default(cuid())
+  wodDefinitionId String
+  wodDefinition   WodDefinition @relation(fields: [wodDefinitionId], references: [id], onDelete: Cascade)
+  /// Local calendar date, "yyyy-MM-dd".
+  date  String
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Empty = every class that day. Otherwise only the listed classes.
+  classes ScheduledWodClass[]
+  results Result[]
+
+  @@index([date])
+}
+
+model ScheduledWodClass {
+  scheduledWodId  String
+  scheduledWod    ScheduledWod  @relation(fields: [scheduledWodId], references: [id], onDelete: Cascade)
+  classInstanceId String
+  classInstance   ClassInstance @relation(fields: [classInstanceId], references: [id], onDelete: Cascade)
+
+  @@id([scheduledWodId, classInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Results
+// ---------------------------------------------------------------------------
+
+model Result {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  wodDefinitionId String
+  wodDefinition   WodDefinition @relation(fields: [wodDefinitionId], references: [id], onDelete: Cascade)
+  /// Null when logged outside a programmed session (did Fran on their own).
+  scheduledWodId  String?
+  scheduledWod    ScheduledWod? @relation(fields: [scheduledWodId], references: [id], onDelete: SetNull)
+  classInstanceId String?
+  classInstance   ClassInstance? @relation(fields: [classInstanceId], references: [id], onDelete: SetNull)
+
+  scalingLevel ScalingLevel
+
+  // Exactly one shape is populated, decided by wodDefinition.scoreType.
+  // Typed columns rather than JSON so scores stay queryable, indexable and
+  // validated per score type.
+  timeSeconds Int?
+  rounds      Int?
+  reps        Int?
+  loadKg      Float?
+
+  /// Hit the time cap. capReps is what they completed at the cap.
+  cappedOut Boolean @default(false)
+  capReps   Int?
+
+  notes String?
+  /// Denormalised for fast badges; recomputed for the member+WOD on any write.
+  isPr  Boolean @default(false)
+
+  /// Local calendar date the effort happened, "yyyy-MM-dd".
+  performedOn String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  liftResults LiftResult[]
+
+  /// One score per member per programmed WOD.
+  @@unique([memberId, scheduledWodId])
+  @@index([wodDefinitionId, scalingLevel])
+  @@index([memberId, performedOn])
+}
+
+/// Strength sets live separately from WOD scoring: a PR is per (movement, reps),
+/// so a 3RM never overwrites a 1RM.
+model LiftResult {
+  id         String   @id @default(cuid())
+  memberId   String
+  member     User     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  movementId String
+  movement   Movement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+
+  reps   Int
+  loadKg Float
+
+  resultId String?
+  result   Result? @relation(fields: [resultId], references: [id], onDelete: SetNull)
+
+  isPr        Boolean @default(false)
+  performedOn String
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, movementId, reps])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (in-app only in v1 — waitlist promotions, suspensions)
+// ---------------------------------------------------------------------------
+
+enum NotificationKind {
+  WAITLIST_PROMOTED
+  CLASS_CANCELLED
+  STRIKE_RECORDED
+  SUSPENDED
+  SUSPENSION_LIFTED
+}
+
+model Notification {
+  id       String           @id @default(cuid())
+  userId   String
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind     NotificationKind
+  title    String
+  body     String
+  /// Deep link into the app, e.g. /book/<classInstanceId>.
+  href     String?
+  readAt   DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
