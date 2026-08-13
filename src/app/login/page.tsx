@@ -3,11 +3,18 @@ import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
 import { atLeast } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
+import { serverConfigProblems } from '@/lib/config-check';
+import { ConfigProblems } from '@/components/config-problems';
 import { LoginForm } from './login-form';
 
 export const dynamic = 'force-dynamic';
 
 export default async function LoginPage() {
+  // Signing in mints a signed session cookie, so a missing secret has to be
+  // reported here rather than as a crash on submit.
+  const problems = serverConfigProblems();
+  if (problems.length > 0) return <ConfigProblems problems={problems} />;
+
   const user = await getSessionUser();
   if (user) redirect(atLeast(user.role, 'COACH') ? '/coach' : '/schedule');
 

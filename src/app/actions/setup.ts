@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { createSession } from '@/lib/auth';
 import { bootstrapGym } from '@/lib/bootstrap';
+import { serverConfigProblems } from '@/lib/config-check';
 import { ensureHorizon } from '@/lib/services/schedule';
 import { todayLocal } from '@/lib/time';
 
@@ -25,6 +26,17 @@ export async function runSetup(
   _prev: SetupFormState,
   formData: FormData,
 ): Promise<SetupFormState> {
+  // Refuse before writing anything. Creating the owner and then failing to
+  // sign them in would leave the gym set up and nobody able to get into it.
+  const problems = serverConfigProblems();
+  if (problems.length > 0) {
+    return {
+      error: `This deployment is missing ${problems
+        .map((p) => p.variable)
+        .join(' and ')}. Add it in your hosting settings and redeploy — nothing has been saved.`,
+    };
+  }
+
   // Guarded here as well as in the page: the page check only stops someone
   // seeing the form, this stops them posting to it.
   if ((await prisma.user.count()) > 0) {

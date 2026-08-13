@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { gymConfig } from '~/gym.config';
 import { prisma } from '@/lib/db';
+import { serverConfigProblems } from '@/lib/config-check';
+import { ConfigProblems } from '@/components/config-problems';
 import { SetupForm } from './setup-form';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +15,11 @@ export const dynamic = 'force-dynamic';
  * redirects to the login page, so it cannot be used to mint a second owner.
  */
 export default async function SetupPage() {
+  // Checked before anything is written: creating the owner and then failing to
+  // sign them in would leave the gym set up and nobody able to get into it.
+  const problems = serverConfigProblems();
+  if (problems.length > 0) return <ConfigProblems problems={problems} />;
+
   const userCount = await prisma.user.count();
   if (userCount > 0) redirect('/login');
 
