@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "classes:generate": "tsx scripts/generate-classes.ts"
+    "classes:generate": "tsx scripts/generate-classes.ts",
+    "build:local": "prisma generate && next build"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

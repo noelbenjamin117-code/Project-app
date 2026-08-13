@@ -7,7 +7,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Pooled connection, used by the app at runtime. Serverless functions open a
+  // lot of short-lived connections, which is exactly what a pooler is for.
+  url       = env("DATABASE_URL")
+  // Unpooled connection, used for migrations — they need a real session and
+  // cannot run through a transaction pooler.
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------

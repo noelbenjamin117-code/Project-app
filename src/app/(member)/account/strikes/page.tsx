@@ -3,6 +3,7 @@ import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
 import { getStrikeState } from '@/lib/services/strikes';
 import { formatDateTime, formatDayDate } from '@/lib/time';
+import { ChangePasswordForm } from '@/components/change-password-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,6 +112,8 @@ export default async function StrikesPage() {
           </ul>
         )}
       </section>
+
+      <ChangePasswordForm />
 
       <section className="card p-5 text-sm text-white/60">
         <h3 className="mb-2 font-semibold text-white">How cancelling works</h3>

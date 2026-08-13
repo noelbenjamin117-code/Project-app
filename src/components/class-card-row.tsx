@@ -100,8 +100,17 @@ export function ClassCardRow({
             <>
               Cancel free until{' '}
               <span className="font-semibold text-white">{booking.deadlineLabel}</span>
+              {/* When a grace window is what's holding the deadline open, say
+                  so — otherwise "free until 2:58am" reads as arbitrary. */}
               {booking.deadlineReason === 'WAITLIST_PROMOTION' && (
                 <span className="text-white/40"> · extra time, you were just promoted</span>
+              )}
+              {booking.deadlineReason === 'FRESH_BOOKING' && (
+                <span className="text-white/40">
+                  {' '}
+                  · the free window for this class has passed, so you have 15 minutes to change
+                  your mind
+                </span>
               )}
             </>
           )}

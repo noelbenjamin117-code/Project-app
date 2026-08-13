@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
-import { assertCan } from '@/lib/permissions';
+import { assertCan, can } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { getStrikeStates } from '@/lib/services/strikes';
+import { suggestPassword } from '@/lib/services/users';
 import { formatDayDate } from '@/lib/time';
+import { AddMemberPanel } from '@/components/add-member-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +34,15 @@ export default async function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Members</h2>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Members</h2>
+          <p className="text-sm text-white/50">
+            {members.length} active · anyone at or near their strike limit is listed first.
+          </p>
+        </div>
+        {can(user, 'manageUsers') && <AddMemberPanel suggestedPassword={suggestPassword()} />}
+      </div>
 
       <div className="card overflow-hidden">
         <ul className="divide-y divide-edge">

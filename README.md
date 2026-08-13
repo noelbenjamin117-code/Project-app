@@ -13,15 +13,24 @@ the boring option at that scale.
 Next.js (App Router) · TypeScript · Postgres · Prisma · Tailwind · Luxon.
 Deploys to Vercel with hosted Postgres.
 
-## Getting started
+## Deploying without a terminal
+
+If you just want this running for your gym, follow **[DEPLOY.md](./DEPLOY.md)** —
+Neon for the database, Vercel for hosting, all from a browser. The app creates
+its own owner account through a first-run setup page, and people are added from
+inside the app, so no command line is needed at any point.
+
+## Getting started (with a terminal)
 
 ```bash
 npm install
-cp .env.example .env        # set DATABASE_URL and SESSION_SECRET
-npx prisma migrate deploy   # or `npm run db:migrate` in development
-npm run db:seed
+cp .env.example .env        # set DATABASE_URL, DIRECT_URL and SESSION_SECRET
+npx prisma migrate deploy
+npm run db:seed             # optional: a full demo gym
 npm run dev
 ```
+
+Skip `db:seed` and the app will offer its first-run setup page instead.
 
 The seed prints its logins. Everyone's password is `password123`:
 
@@ -154,13 +163,22 @@ every role, and DST-boundary scheduling in both directions.
 
 ## Deploying
 
-Set `DATABASE_URL` and `SESSION_SECRET` (32+ random bytes:
-`openssl rand -base64 48`), run `npx prisma migrate deploy`, and deploy. Set the
-gym's timezone in `gym.config.ts` before launch — changing it later reinterprets
-every class time already stored.
+See **[DEPLOY.md](./DEPLOY.md)** for the click-by-click version. In short:
 
-Optionally point a daily scheduled job at `npm run classes:generate`; the app
-also tops the horizon up whenever anyone opens the schedule.
+- `DATABASE_URL` is the **pooled** Postgres connection (serverless functions
+  open many short-lived connections); `DIRECT_URL` is the **unpooled** one,
+  used only for migrations, which need a real session.
+- `SESSION_SECRET` is 32+ random characters. Rotating it signs everyone out.
+- `npm run build` runs `prisma migrate deploy` before `next build`, so schema
+  changes ship with the deploy and a failed migration fails the build.
+- `vercel.json` registers a daily job at `/api/cron/generate-classes` to top up
+  the booking horizon. Set `CRON_SECRET` and Vercel sends it as a bearer token.
+- Set the gym's name and timezone in `gym.config.ts` **before launch** —
+  changing the timezone later reinterprets every class time already stored.
+
+First run: the app detects an empty database, redirects to `/setup`, and creates
+the owner account plus (optionally) the weekly schedule and benchmark library.
+That page disables itself as soon as any user exists.
 
 ## Not in v1
 

@@ -5,8 +5,10 @@ import { assertCan, can } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { notFound } from '@/lib/errors';
 import { getStrikeState } from '@/lib/services/strikes';
+import { suggestPassword } from '@/lib/services/users';
 import { formatDateTime, formatDayDate } from '@/lib/time';
 import { StrikeAdmin, type StrikeRowView } from '@/components/strike-admin';
+import { MemberAccountPanel } from '@/components/member-account-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +24,7 @@ export default async function MemberDetailPage({
 
   const member = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, role: true, active: true },
   });
   if (!member) throw notFound('That member no longer exists.');
 
@@ -78,8 +80,19 @@ export default async function MemberDetailPage({
         <h2 className="mt-2 text-2xl font-bold">{member.name}</h2>
         <p className="text-white/50">
           {member.email} · {member.role.toLowerCase()} · {attendanceCount} classes attended
+          {!member.active && <span className="pill ml-2 bg-bad/15 text-bad">Deactivated</span>}
         </p>
       </div>
+
+      {can(user, 'manageUsers') && (
+        <MemberAccountPanel
+          userId={member.id}
+          role={member.role}
+          active={member.active}
+          isSelf={member.id === user.id}
+          suggestedPassword={suggestPassword()}
+        />
+      )}
 
       {state.suspended && state.suspendedUntil && (
         <div className="card border-bad/40 bg-bad/5 p-5">
