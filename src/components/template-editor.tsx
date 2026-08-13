@@ -20,6 +20,7 @@ export interface TemplateView {
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal: string | null;
   cancelRelativeHours: number | null;
+  notes: string | null;
   policyLabel: string;
 }
 
@@ -33,6 +34,7 @@ type Draft = {
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal: string;
   cancelRelativeHours: number;
+  notes: string;
 };
 
 const BLANK: Draft = {
@@ -45,6 +47,7 @@ const BLANK: Draft = {
   cancelPolicyType: 'RELATIVE',
   cancelAbsoluteTimeLocal: '21:00',
   cancelRelativeHours: 2,
+  notes: '',
 };
 
 export function TemplateEditor({
@@ -82,6 +85,7 @@ export function TemplateEditor({
     cancelPolicyType: d.cancelPolicyType,
     cancelAbsoluteTimeLocal: d.cancelAbsoluteTimeLocal,
     cancelRelativeHours: d.cancelRelativeHours,
+    notes: d.notes.trim() || null,
   });
 
   const startEdit = (template: TemplateView) => {
@@ -95,6 +99,7 @@ export function TemplateEditor({
       cancelPolicyType: template.cancelPolicyType,
       cancelAbsoluteTimeLocal: template.cancelAbsoluteTimeLocal ?? '21:00',
       cancelRelativeHours: template.cancelRelativeHours ?? 2,
+      notes: template.notes ?? '',
     });
     setEditingId(template.id);
     setCreating(false);
@@ -165,6 +170,9 @@ export function TemplateEditor({
                       {template.capacity} spots · {template.durationMinutes} min ·{' '}
                       {template.policyLabel}
                     </p>
+                    {template.notes && (
+                      <p className="mt-0.5 text-sm text-warn">{template.notes}</p>
+                    )}
                   </div>
                   <button
                     className="btn-secondary px-3 py-2 text-xs"
@@ -352,6 +360,19 @@ function DraftForm({
             />
           </div>
         )}
+      </div>
+
+      <div className="border-t border-edge pt-4">
+        <label className="label">Note for members (optional)</label>
+        <input
+          className="input"
+          placeholder="e.g. Drop-in £5 — not included in membership"
+          value={draft.notes}
+          onChange={(e) => set('notes', e.target.value)}
+        />
+        <p className="mt-1 text-xs text-white/40">
+          Shown on the class before anyone books it.
+        </p>
       </div>
 
       {extra}

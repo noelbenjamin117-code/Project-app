@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { gymConfig } from '~/gym.config';
 import { prisma } from '@/lib/db';
 import { serverConfigProblems } from '@/lib/config-check';
+import { DEFAULT_TEMPLATE_SHAPES } from '@/lib/bootstrap';
 import { ConfigProblems } from '@/components/config-problems';
 import { SetupForm } from './setup-form';
 
@@ -39,7 +40,7 @@ export default async function SetupPage() {
       <SetupForm
         gymName={gymConfig.name}
         timezone={gymConfig.timezone}
-        templateCount={5}
+        templateCount={DEFAULT_TEMPLATE_SHAPES.length}
       />
     </main>
   );

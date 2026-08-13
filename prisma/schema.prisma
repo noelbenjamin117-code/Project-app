@@ -82,6 +82,11 @@ model ClassTemplate {
   /// RELATIVE only: hours before class start.
   cancelRelativeHours     Int?
 
+  /// Shown to members before they book — e.g. a drop-in fee that is not
+  /// covered by membership. Payments happen outside the app, so this is how
+  /// anything of that sort gets communicated.
+  notes String?
+
   /// Local dates (yyyy-MM-dd) bounding when this template generates classes.
   activeFrom  String
   activeUntil String?
@@ -106,6 +111,8 @@ model ClassInstance {
   template   ClassTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   name String
+  /// Snapshotted from the template, same as capacity and the cancellation rule.
+  notes String?
   /// Local calendar date, "yyyy-MM-dd". Paired with templateId for idempotent
   /// generation, and used for "today" lookups without timezone gymnastics.
   date String

@@ -7,6 +7,7 @@ import type { DeadlineReason } from '@/lib/domain/cancellation';
 export interface ClassCardView {
   id: string;
   name: string;
+  notes: string | null;
   timeLabel: string;
   coachName: string | null;
   capacity: number;
@@ -85,6 +86,12 @@ export function ClassCardRow({
           )}
         </div>
       </div>
+
+      {/* Anything a member needs to know before booking — e.g. a drop-in fee
+          that membership does not cover. */}
+      {card.notes && !card.cancelled && (
+        <p className="mt-2 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">{card.notes}</p>
+      )}
 
       {card.cancelled && card.cancelledReason && (
         <p className="mt-2 text-sm text-bad/80">{card.cancelledReason} — no strike, no penalty.</p>

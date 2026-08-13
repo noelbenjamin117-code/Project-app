@@ -13,6 +13,7 @@ import type { StrikeState } from '@/lib/domain/strikes';
 export interface ClassCard {
   id: string;
   name: string;
+  notes: string | null;
   date: LocalDate;
   startsAt: Date;
   endsAt: Date;
@@ -92,6 +93,7 @@ export async function getSchedule(
     const card: ClassCard = {
       id: instance.id,
       name: instance.name,
+      notes: instance.notes,
       date: instance.date,
       startsAt: instance.startsAt,
       endsAt: instance.endsAt,

@@ -75,8 +75,10 @@ ones swapped.
    gym** page.
 3. Fill in your name, email and a password. Leave both checkboxes ticked so you
    get:
-   - your weekly schedule (6:00am, 7:00am, 9:30am, 5:30pm, 6:30pm, Mon–Fri,
-     with the cancellation rules already set)
+   - your weekly schedule — all 25 classes, with each one's cancellation rule
+     already set: BLITZ42 on Monday, ATHELERIX42 plus Run Club on Tuesday,
+     HYROX and CALIBRATE42 on Wednesday, BUILD42 on Thursday, HYROX on Friday,
+     and the Sunday HYROX drop-in. No Saturday classes.
    - the ten benchmark WODs and the barbell lifts for PR tracking
 4. Click **Create my gym**. You're signed in as the owner.
 

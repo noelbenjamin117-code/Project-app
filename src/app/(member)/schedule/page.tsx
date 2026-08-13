@@ -96,6 +96,7 @@ function toView(card: ClassCard, now: Date): ClassCardView {
   return {
     id: card.id,
     name: card.name,
+    notes: card.notes,
     timeLabel: formatTime(card.startsAt),
     coachName: card.coachName,
     capacity: card.capacity,

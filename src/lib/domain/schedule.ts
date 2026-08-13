@@ -17,11 +17,13 @@ export interface TemplateSpec {
   activeFrom: LocalDate;
   activeUntil?: LocalDate | null;
   archived?: boolean;
+  notes?: string | null;
 }
 
 export interface InstanceSpec {
   templateId: string;
   name: string;
+  notes: string | null;
   date: LocalDate;
   startsAt: Date;
   endsAt: Date;
@@ -69,6 +71,7 @@ export function expandTemplates(
       specs.push({
         templateId: template.id,
         name: template.name,
+        notes: template.notes ?? null,
         date,
         startsAt,
         endsAt,

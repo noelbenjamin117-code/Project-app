@@ -101,8 +101,9 @@ export function SetupForm({
           <span className="text-white/70">
             Create my weekly schedule
             <span className="block text-xs text-white/40">
-              {templateCount} classes a day, Monday to Friday — 6:00am, 7:00am, 9:30am, 5:30pm,
-              6:30pm, with the cancellation rules already set. Fully editable afterwards.
+              All {templateCount} classes: BLITZ42 Monday, ATHELERIX42 and Run Club Tuesday,
+              HYROX and CALIBRATE42 Wednesday, BUILD42 Thursday, HYROX Friday and Sunday — with
+              each class's cancellation rule already set. Fully editable afterwards.
             </span>
           </span>
         </label>

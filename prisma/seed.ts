@@ -103,8 +103,8 @@ async function main() {
   console.log(`Created ${members.length} members, ${coaches.length} coaches, 1 owner.`);
 
   // -------------------------------------------------------------------------
-  // Class templates — the gym's actual schedule, Monday to Friday.
-  // Each template carries its own cancellation rule.
+  // Class templates — the gym's real timetable. Each template carries its own
+  // cancellation rule.
   // -------------------------------------------------------------------------
   const today = DateTime.now().setZone(TZ).startOf('day');
   const activeFrom = localDate(today.minus({ days: 30 }));
@@ -148,6 +148,7 @@ async function main() {
           data: {
             templateId: template.id,
             name: template.name,
+            notes: template.notes,
             date,
             startsAt,
             endsAt,
@@ -166,7 +167,9 @@ async function main() {
 
   // One cancelled class in the future, so the "gym cancelled, no strike" path
   // is visible in the UI.
-  const toCancel = instances.find((i) => i.startsAt > new Date() && i.name === '9:30am WOD');
+  const toCancel = instances.find(
+    (i) => i.startsAt > new Date() && i.startsAt.getTime() > Date.now() + 2 * 86_400_000,
+  );
   if (toCancel) {
     await prisma.classInstance.update({
       where: { id: toCancel.id },

@@ -37,6 +37,7 @@ export default async function TemplatesPage() {
     cancelPolicyType: t.cancelPolicyType,
     cancelAbsoluteTimeLocal: t.cancelAbsoluteTimeLocal,
     cancelRelativeHours: t.cancelRelativeHours,
+    notes: t.notes,
     policyLabel: describePolicy({
       type: t.cancelPolicyType,
       absoluteTimeLocal: t.cancelAbsoluteTimeLocal,

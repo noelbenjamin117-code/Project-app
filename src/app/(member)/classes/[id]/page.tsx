@@ -46,6 +46,7 @@ export default async function MemberClassPage({
         card={{
           id: card.id,
           name: card.name,
+          notes: card.notes,
           timeLabel: formatTime(card.startsAt),
           coachName: card.coachName,
           capacity: card.capacity,
