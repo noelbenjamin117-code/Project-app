@@ -49,18 +49,19 @@ export function expandTemplates(
   templates: TemplateSpec[],
   from: LocalDate,
   to: LocalDate,
+  zone: string = GYM_TZ,
 ): InstanceSpec[] {
   const specs: InstanceSpec[] = [];
 
-  for (const date of localDateRange(from, to)) {
-    const weekday = localWeekday(date);
+  for (const date of localDateRange(from, to, zone)) {
+    const weekday = localWeekday(date, zone);
     for (const template of templates) {
       if (template.archived) continue;
       if (template.dayOfWeek !== weekday) continue;
       if (date < template.activeFrom) continue;
       if (template.activeUntil && date > template.activeUntil) continue;
 
-      const startsAt = localToUtc(date, template.startTimeLocal);
+      const startsAt = localToUtc(date, template.startTimeLocal, zone);
       const endsAt = DateTime.fromJSDate(startsAt)
         .plus({ minutes: template.durationMinutes })
         .toJSDate();
@@ -78,11 +79,16 @@ export function expandTemplates(
         cancelPolicyType: template.cancelPolicyType,
         cancelAbsoluteTimeLocal: template.cancelAbsoluteTimeLocal ?? null,
         cancelRelativeHours: template.cancelRelativeHours ?? null,
-        cancelDeadlineAt: classCancelDeadline(date, startsAt, {
-          type: template.cancelPolicyType,
-          absoluteTimeLocal: template.cancelAbsoluteTimeLocal,
-          relativeHours: template.cancelRelativeHours,
-        }),
+        cancelDeadlineAt: classCancelDeadline(
+          date,
+          startsAt,
+          {
+            type: template.cancelPolicyType,
+            absoluteTimeLocal: template.cancelAbsoluteTimeLocal,
+            relativeHours: template.cancelRelativeHours,
+          },
+          zone,
+        ),
       });
     }
   }

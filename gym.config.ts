@@ -4,15 +4,15 @@
  * "gym settings" in a SaaS product lives here and is deployed with the code.
  */
 export const gymConfig = {
-  name: 'Ironside Strength & Conditioning',
-  shortName: 'Ironside',
+  name: 'B42',
+  shortName: 'B42',
 
   /**
    * The one timezone the gym operates in. Every timestamp is stored in UTC and
    * rendered through this zone. Changing it would reinterpret every existing
    * class time, so treat it as fixed after launch.
    */
-  timezone: 'America/New_York',
+  timezone: 'Europe/London',
 
   /** Members log and read loads in kilograms. */
   weightUnit: 'kg' as const,
