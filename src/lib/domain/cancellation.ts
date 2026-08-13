@@ -23,12 +23,13 @@ export function classCancelDeadline(
   classLocalDate: LocalDate,
   startsAt: Date,
   policy: CancellationPolicy,
+  zone: string = GYM_TZ,
 ): Date {
   switch (policy.type) {
     case 'ABSOLUTE': {
       const time = policy.absoluteTimeLocal;
       if (!time) throw new Error('ABSOLUTE cancellation policy requires absoluteTimeLocal');
-      return localToUtc(addLocalDays(classLocalDate, -1), time as LocalTime);
+      return localToUtc(addLocalDays(classLocalDate, -1, zone), time as LocalTime, zone);
     }
     case 'RELATIVE': {
       const hours = policy.relativeHours;

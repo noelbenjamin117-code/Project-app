@@ -22,8 +22,8 @@ export type LocalTime = string;
  *  - Fall back: 01:30 happens twice. Luxon takes the first (pre-transition)
  *    occurrence, which is the earlier wall-clock moment members expect.
  */
-export function localToUtc(date: LocalDate, time: LocalTime): Date {
-  const dt = DateTime.fromISO(`${date}T${time}`, { zone: GYM_TZ });
+export function localToUtc(date: LocalDate, time: LocalTime, zone: string = GYM_TZ): Date {
+  const dt = DateTime.fromISO(`${date}T${time}`, { zone });
   if (!dt.isValid) {
     throw new Error(`Invalid local datetime ${date}T${time}: ${dt.invalidReason}`);
   }
@@ -31,13 +31,13 @@ export function localToUtc(date: LocalDate, time: LocalTime): Date {
 }
 
 /** The gym-local calendar date of an instant, as "yyyy-MM-dd". */
-export function toLocalDate(instant: Date): LocalDate {
-  return DateTime.fromJSDate(instant, { zone: GYM_TZ }).toFormat('yyyy-MM-dd');
+export function toLocalDate(instant: Date, zone: string = GYM_TZ): LocalDate {
+  return DateTime.fromJSDate(instant, { zone }).toFormat('yyyy-MM-dd');
 }
 
 /** The gym-local wall-clock time of an instant, as "HH:mm". */
-export function toLocalTime(instant: Date): LocalTime {
-  return DateTime.fromJSDate(instant, { zone: GYM_TZ }).toFormat('HH:mm');
+export function toLocalTime(instant: Date, zone: string = GYM_TZ): LocalTime {
+  return DateTime.fromJSDate(instant, { zone }).toFormat('HH:mm');
 }
 
 export function todayLocal(now: Date = new Date()): LocalDate {
@@ -45,20 +45,24 @@ export function todayLocal(now: Date = new Date()): LocalDate {
 }
 
 /** Shift a local date by whole days, staying in the local calendar. */
-export function addLocalDays(date: LocalDate, days: number): LocalDate {
-  return DateTime.fromISO(date, { zone: GYM_TZ }).plus({ days }).toFormat('yyyy-MM-dd');
+export function addLocalDays(date: LocalDate, days: number, zone: string = GYM_TZ): LocalDate {
+  return DateTime.fromISO(date, { zone }).plus({ days }).toFormat('yyyy-MM-dd');
 }
 
 /** ISO weekday of a local date: 1 = Monday … 7 = Sunday. */
-export function localWeekday(date: LocalDate): number {
-  return DateTime.fromISO(date, { zone: GYM_TZ }).weekday;
+export function localWeekday(date: LocalDate, zone: string = GYM_TZ): number {
+  return DateTime.fromISO(date, { zone }).weekday;
 }
 
 /** Inclusive list of local dates from `from` to `to`. */
-export function localDateRange(from: LocalDate, to: LocalDate): LocalDate[] {
+export function localDateRange(
+  from: LocalDate,
+  to: LocalDate,
+  zone: string = GYM_TZ,
+): LocalDate[] {
   const dates: LocalDate[] = [];
-  let cursor = DateTime.fromISO(from, { zone: GYM_TZ }).startOf('day');
-  const end = DateTime.fromISO(to, { zone: GYM_TZ }).startOf('day');
+  let cursor = DateTime.fromISO(from, { zone }).startOf('day');
+  const end = DateTime.fromISO(to, { zone }).startOf('day');
   while (cursor <= end) {
     dates.push(cursor.toFormat('yyyy-MM-dd'));
     cursor = cursor.plus({ days: 1 });
