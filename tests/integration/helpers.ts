@@ -13,6 +13,8 @@ const unique = () => `${Date.now()}-${counter++}`;
  * clean slate per test is cheaper to reason about than shared fixtures.
  */
 export async function resetDb(): Promise<void> {
+  await prisma.membershipOverride.deleteMany();
+  await prisma.membership.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.liftResult.deleteMany();
   await prisma.result.deleteMany();
@@ -29,9 +31,15 @@ export async function resetDb(): Promise<void> {
   await prisma.user.deleteMany();
 }
 
+/**
+ * Booking is gated on membership, so test users are paid-up by default —
+ * otherwise every booking test would be testing the membership gate rather
+ * than the thing it means to. Pass `paying: false` to get someone without one.
+ */
 export async function createUser(
   role: Role = 'MEMBER',
   name = `User ${unique()}`,
+  options: { paying?: boolean } = {},
 ): Promise<SessionUser> {
   const user = await prisma.user.create({
     data: {
@@ -39,6 +47,16 @@ export async function createUser(
       name,
       role,
       passwordHash: 'not-used-in-these-tests',
+      ...(options.paying === false
+        ? {}
+        : {
+            membership: {
+              create: {
+                status: 'ACTIVE',
+                currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+              },
+            },
+          }),
     },
   });
   return { id: user.id, email: user.email, name: user.name, role: user.role };

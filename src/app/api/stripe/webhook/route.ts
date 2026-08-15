@@ -77,7 +77,7 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
     case 'customer.subscription.deleted':
     case 'customer.subscription.paused':
     case 'customer.subscription.resumed':
-      await syncSubscription(event.data.object as Stripe.Subscription);
+      await syncSubscription(event.data.object as Stripe.Subscription, eventAt(event));
       break;
 
     case 'checkout.session.completed': {
@@ -87,7 +87,7 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
       const subscriptionId =
         typeof session.subscription === 'string' ? session.subscription : session.subscription.id;
       const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
-      await syncSubscription(subscription);
+      await syncSubscription(subscription, eventAt(event));
       break;
     }
 
@@ -95,7 +95,7 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
       const invoice = event.data.object as Stripe.Invoice;
       const customerId =
         typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
-      if (customerId) await recordPaymentFailure(customerId);
+      if (customerId) await recordPaymentFailure(customerId, eventAt(event));
       break;
     }
 
@@ -112,4 +112,9 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
       // Everything else is acknowledged and ignored on purpose.
       break;
   }
+}
+
+/** Stripe stamps every event with when it was created, in seconds. */
+function eventAt(event: Stripe.Event): Date {
+  return new Date(event.created * 1000);
 }

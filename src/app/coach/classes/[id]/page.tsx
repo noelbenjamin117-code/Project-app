@@ -45,6 +45,7 @@ export default async function RosterPage({ params }: { params: Promise<{ id: str
     promotedLabel: entry.promotedAt ? formatDeadline(entry.promotedAt, now) : null,
     riskLevel: entry.riskLevel,
     strikeSummary: `${entry.strikes.currentWeight}/${entry.strikes.threshold}`,
+    membershipLapsed: entry.membershipLapsed,
   });
 
   const started = roster.classInstance.startsAt <= now;

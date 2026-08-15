@@ -52,6 +52,8 @@ const LAST_NAMES = [
 async function main() {
   console.log('Resetting…');
   // Order matters: children first, since some relations are Restrict by default.
+  await prisma.membershipOverride.deleteMany();
+  await prisma.membership.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.liftResult.deleteMany();
   await prisma.result.deleteMany();
@@ -100,6 +102,31 @@ async function main() {
       }),
     );
   }
+  // Booking is gated on membership, so the demo gym needs paid-up members.
+  // A couple are deliberately left lapsed or failing so those states are
+  // visible without having to fake a Stripe event.
+  for (const [index, member] of members.entries()) {
+    const status =
+      index === 3 ? 'CANCELED' : index === 4 ? 'PAST_DUE' : ('ACTIVE' as const);
+    await prisma.membership.create({
+      data: {
+        userId: member.id,
+        status,
+        currentPeriodEnd: new Date(Date.now() + between(3, 28) * 86_400_000),
+        pastDueSince: status === 'PAST_DUE' ? new Date(Date.now() - 86_400_000) : null,
+      },
+    });
+  }
+  for (const staff of [owner, ...coaches]) {
+    await prisma.membership.create({
+      data: {
+        userId: staff.id,
+        status: 'ACTIVE',
+        currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+      },
+    });
+  }
+
   console.log(`Created ${members.length} members, ${coaches.length} coaches, 1 owner.`);
 
   // -------------------------------------------------------------------------

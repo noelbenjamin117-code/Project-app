@@ -4,7 +4,10 @@ import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
 import { atLeast } from '@/lib/permissions';
 import { getStrikeState } from '@/lib/services/strikes';
-import { StrikeBanner } from '@/components/strike-banner';
+import { getMembershipState } from '@/lib/services/membership';
+import { stripeConfigured } from '@/lib/stripe';
+import { formatDateTime } from '@/lib/time';
+import { StrikeBanner, MembershipBanner } from '@/components/strike-banner';
 import { MemberNav } from '@/components/member-nav';
 import { ServiceWorkerRegistrar } from '@/components/service-worker';
 import { signOut } from '@/app/actions/auth';
@@ -15,6 +18,7 @@ export default async function MemberLayout({ children }: { children: React.React
 
   // Coaches use this surface too — they book and log scores like everyone else.
   const strikeState = await getStrikeState(user.id);
+  const membershipState = stripeConfigured() ? await getMembershipState(user.id) : null;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col">
@@ -39,6 +43,15 @@ export default async function MemberLayout({ children }: { children: React.React
           </form>
         </div>
       </header>
+
+      {membershipState && (
+        <MembershipBanner
+          state={membershipState}
+          graceEndsLabel={
+            membershipState.graceEndsAt ? formatDateTime(membershipState.graceEndsAt) : null
+          }
+        />
+      )}
 
       {/* Persistent — a member one strike from suspension is told on every
           screen, not only at the moment they cancel. */}

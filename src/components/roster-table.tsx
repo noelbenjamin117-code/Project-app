@@ -23,6 +23,7 @@ export interface RosterRowView {
   promotedLabel: string | null;
   riskLevel: 'NONE' | 'NEAR' | 'AT_THRESHOLD' | 'SUSPENDED';
   strikeSummary: string;
+  membershipLapsed: boolean;
 }
 
 const RISK_STYLE: Record<RosterRowView['riskLevel'], string | null> = {
@@ -105,6 +106,11 @@ export function RosterTable({
                       <span className={`pill ${RISK_STYLE[row.riskLevel]}`}>
                         {RISK_LABEL[row.riskLevel]} · {row.strikeSummary}
                       </span>
+                    )}
+                    {/* Booked while paying, lapsed since. The booking stands;
+                        the coach just knows to have a word. */}
+                    {row.membershipLapsed && (
+                      <span className="pill bg-bad/15 text-bad">Membership lapsed</span>
                     )}
                     {row.source === 'WALK_IN' && (
                       <span className="pill bg-white/10 text-white/50">Walk-in</span>

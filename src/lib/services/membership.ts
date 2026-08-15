@@ -1,18 +1,24 @@
 import 'server-only';
 import type Stripe from 'stripe';
-import type { Membership, MembershipStatus } from '@prisma/client';
+import type { Membership, MembershipStatus, Prisma } from '@prisma/client';
+import { gymConfig } from '~/gym.config';
 import { prisma } from '@/lib/db';
 import { getStripe, stripeConfigured, appUrl } from '@/lib/stripe';
 import type { SessionUser } from '@/lib/auth';
 import { assertCan, assertSelfOrStaff } from '@/lib/permissions';
 import { AppError, notFound } from '@/lib/errors';
+import {
+  computeMembershipState,
+  type MembershipState,
+  type OverrideInput,
+} from '@/lib/domain/membership';
+
+type Db = Prisma.TransactionClient | typeof prisma;
 
 /**
- * Stripe's subscription statuses, mapped onto ours.
- *
- * `past_due` deliberately stays a membership rather than becoming a
- * cancellation: it is where a bounced payment lands while Stripe retries, and
- * the member has usually done nothing wrong yet.
+ * Stripe's subscription statuses, mapped onto ours. `past_due` stays its own
+ * thing rather than collapsing into cancelled, because the grace period keys
+ * off it.
  */
 const STATUS_MAP: Record<string, MembershipStatus> = {
   active: 'ACTIVE',
@@ -29,25 +35,6 @@ export function toMembershipStatus(stripeStatus: string): MembershipStatus {
   return STATUS_MAP[stripeStatus] ?? 'NONE';
 }
 
-/** Counts as a paying member for anything the gym cares about. */
-export function isPaidUp(membership: Pick<Membership, 'status'> | null): boolean {
-  if (!membership) return false;
-  return (
-    membership.status === 'ACTIVE' ||
-    membership.status === 'TRIALING' ||
-    membership.status === 'PAST_DUE'
-  );
-}
-
-/** Needs the owner's attention: failing, lapsed or about to end. */
-export function needsAttention(membership: Pick<Membership, 'status' | 'cancelAtPeriodEnd'> | null): boolean {
-  if (!membership) return true;
-  if (membership.status === 'PAST_DUE') return true;
-  if (membership.status === 'CANCELED' || membership.status === 'NONE') return true;
-  if (membership.status === 'INCOMPLETE') return true;
-  return membership.cancelAtPeriodEnd;
-}
-
 export const MEMBERSHIP_LABEL: Record<MembershipStatus, string> = {
   NONE: 'No membership',
   ACTIVE: 'Active',
@@ -59,92 +46,97 @@ export const MEMBERSHIP_LABEL: Record<MembershipStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Plans, read from Stripe rather than hard-coded
+// Reading state
 // ---------------------------------------------------------------------------
 
-export interface Plan {
-  priceId: string;
-  productName: string;
-  description: string | null;
-  /** Minor units, e.g. pence. */
-  amount: number | null;
-  currency: string;
-  interval: string | null;
-  intervalCount: number;
+async function overridesFor(memberId: string, db: Db = prisma): Promise<OverrideInput[]> {
+  const rows = await db.membershipOverride.findMany({ where: { memberId } });
+  return rows.map((o) => ({
+    id: o.id,
+    activeUntil: o.activeUntil,
+    reason: o.reason,
+    revokedAt: o.revokedAt,
+  }));
 }
+
+/** The computed state for one member. This is what the booking path asks. */
+export async function getMembershipState(
+  memberId: string,
+  now: Date = new Date(),
+  db: Db = prisma,
+): Promise<MembershipState> {
+  const [membership, overrides] = await Promise.all([
+    db.membership.findUnique({ where: { userId: memberId } }),
+    overridesFor(memberId, db),
+  ]);
+
+  return computeMembershipState(membership, overrides, now);
+}
+
+/** Bulk version, so a roster of thirty is two queries rather than sixty. */
+export async function getMembershipStates(
+  memberIds: string[],
+  now: Date = new Date(),
+): Promise<Map<string, MembershipState>> {
+  if (memberIds.length === 0) return new Map();
+
+  const [memberships, overrides] = await Promise.all([
+    prisma.membership.findMany({ where: { userId: { in: memberIds } } }),
+    prisma.membershipOverride.findMany({ where: { memberId: { in: memberIds } } }),
+  ]);
+
+  const byMember = new Map<string, MembershipState>();
+  for (const memberId of memberIds) {
+    byMember.set(
+      memberId,
+      computeMembershipState(
+        memberships.find((m) => m.userId === memberId) ?? null,
+        overrides
+          .filter((o) => o.memberId === memberId)
+          .map((o) => ({
+            id: o.id,
+            activeUntil: o.activeUntil,
+            reason: o.reason,
+            revokedAt: o.revokedAt,
+          })),
+        now,
+      ),
+    );
+  }
+  return byMember;
+}
+
+export async function getMembership(
+  actor: SessionUser,
+  userId: string = actor.id,
+): Promise<Membership | null> {
+  assertSelfOrStaff(actor, userId);
+  return prisma.membership.findUnique({ where: { userId } });
+}
+
+// ---------------------------------------------------------------------------
+// Keeping the mirror current
+// ---------------------------------------------------------------------------
 
 /**
- * The gym's membership tiers are whatever recurring prices exist in its own
- * Stripe account. That means adding or repricing a tier is done in Stripe,
- * where the money already lives, rather than by editing code and redeploying.
- */
-export async function listPlans(): Promise<Plan[]> {
-  if (!stripeConfigured()) return [];
-
-  const stripe = getStripe();
-  const prices = await stripe.prices.list({
-    active: true,
-    type: 'recurring',
-    expand: ['data.product'],
-    limit: 50,
-  });
-
-  return prices.data
-    .filter((price) => {
-      const product = price.product as Stripe.Product;
-      return typeof product !== 'string' && !product.deleted && product.active;
-    })
-    .map((price) => {
-      const product = price.product as Stripe.Product;
-      return {
-        priceId: price.id,
-        productName: product.name,
-        description: product.description,
-        amount: price.unit_amount,
-        currency: price.currency,
-        interval: price.recurring?.interval ?? null,
-        intervalCount: price.recurring?.interval_count ?? 1,
-      };
-    })
-    .sort((a, b) => (a.amount ?? 0) - (b.amount ?? 0));
-}
-
-export function formatPrice(plan: Plan): string {
-  if (plan.amount == null) return 'Price on request';
-
-  const amount = new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency: plan.currency.toUpperCase(),
-    minimumFractionDigits: plan.amount % 100 === 0 ? 0 : 2,
-  }).format(plan.amount / 100);
-
-  if (!plan.interval) return amount;
-  const every = plan.intervalCount > 1 ? `every ${plan.intervalCount} ${plan.interval}s` : `a ${plan.interval}`;
-  return `${amount} ${every}`;
-}
-
-// ---------------------------------------------------------------------------
-// Keeping the local mirror current
-// ---------------------------------------------------------------------------
-
-/**
- * Write a Stripe subscription into our local mirror.
+ * Write a Stripe subscription into the local mirror.
  *
- * Everything the app reads comes from this row rather than from Stripe, so
- * rendering a roster of thirty people is one query rather than thirty API
- * calls.
+ * `eventAt` is when Stripe created the event. Anything at or before what we
+ * have already applied is dropped, because Stripe delivers out of order and a
+ * late stale event must not undo a newer one.
  */
-export async function syncSubscription(subscription: Stripe.Subscription): Promise<void> {
+export async function syncSubscription(
+  subscription: Stripe.Subscription,
+  eventAt: Date = new Date(),
+): Promise<void> {
   const customerId =
     typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
 
-  const membership = await prisma.membership.findFirst({
+  const existing = await prisma.membership.findFirst({
     where: { stripeCustomerId: customerId },
   });
 
-  // A subscription for a customer we have never seen — most likely created in
-  // the Stripe dashboard by hand. Match on the customer's email if we can.
-  let userId = membership?.userId;
+  let userId = existing?.userId;
   if (!userId) {
     userId = (await userIdForCustomer(customerId)) ?? undefined;
     if (!userId) {
@@ -153,11 +145,17 @@ export async function syncSubscription(subscription: Stripe.Subscription): Promi
     }
   }
 
-  const item = subscription.items.data[0];
-  const price = item?.price;
-  const product = price?.product;
+  if (existing?.lastStripeEventAt && existing.lastStripeEventAt >= eventAt) {
+    return;
+  }
 
-  const periodEnd = item?.current_period_end ?? null;
+  const status = toMembershipStatus(subscription.status);
+  const periodEnd = subscription.items.data[0]?.current_period_end ?? null;
+
+  // Stamp when they first went past due, and clear it the moment they recover,
+  // since the grace window is measured from that instant.
+  const pastDueSince =
+    status === 'PAST_DUE' ? existing?.pastDueSince ?? eventAt : null;
 
   await prisma.membership.upsert({
     where: { userId },
@@ -165,42 +163,22 @@ export async function syncSubscription(subscription: Stripe.Subscription): Promi
       userId,
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
-      stripePriceId: price?.id ?? null,
-      planName: await planNameFor(product),
-      status: toMembershipStatus(subscription.status),
+      status,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      pastDueSince,
+      lastStripeEventAt: eventAt,
     },
     update: {
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
-      stripePriceId: price?.id ?? null,
-      planName: await planNameFor(product),
-      status: toMembershipStatus(subscription.status),
+      status,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
-      // A successful renewal clears any previous failure.
-      ...(subscription.status === 'active' ? { paymentFailedAt: null } : {}),
+      pastDueSince,
+      lastStripeEventAt: eventAt,
     },
   });
 }
 
-async function planNameFor(
-  product: string | Stripe.Product | Stripe.DeletedProduct | undefined,
-): Promise<string | null> {
-  if (!product) return null;
-  if (typeof product !== 'string') {
-    return 'name' in product ? product.name : null;
-  }
-  try {
-    const fetched = await getStripe().products.retrieve(product);
-    return fetched.deleted ? null : fetched.name;
-  } catch {
-    return null;
-  }
-}
-
-/** Find the member a Stripe customer belongs to, by email. */
 async function userIdForCustomer(customerId: string): Promise<string | null> {
   try {
     const customer = await getStripe().customers.retrieve(customerId);
@@ -216,33 +194,53 @@ async function userIdForCustomer(customerId: string): Promise<string | null> {
   }
 }
 
-export async function recordPaymentFailure(customerId: string): Promise<void> {
-  await prisma.membership.updateMany({
+export async function recordPaymentFailure(customerId: string, at: Date): Promise<void> {
+  const membership = await prisma.membership.findFirst({
     where: { stripeCustomerId: customerId },
-    data: { paymentFailedAt: new Date(), status: 'PAST_DUE' },
+  });
+  if (!membership) return;
+
+  await prisma.membership.update({
+    where: { id: membership.id },
+    data: {
+      status: 'PAST_DUE',
+      // Keep the original failure time so the grace window is not extended by
+      // each retry that also fails.
+      pastDueSince: membership.pastDueSince ?? at,
+    },
   });
 }
 
 export async function recordPaymentSuccess(customerId: string): Promise<void> {
   await prisma.membership.updateMany({
     where: { stripeCustomerId: customerId },
-    data: { paymentFailedAt: null },
+    data: { pastDueSince: null },
   });
 }
 
 // ---------------------------------------------------------------------------
-// Member-facing actions
+// Member-facing
 // ---------------------------------------------------------------------------
 
-/** Get or create the member's Stripe customer, so their history stays in one place. */
+export interface Plan {
+  priceId: string;
+  name: string;
+  priceLabel: string;
+  description: string;
+}
+
+/** v1 sells exactly one plan. */
+export function getPlan(): Plan | null {
+  const priceId = process.env.STRIPE_PRICE_ID;
+  if (!priceId) return null;
+  return { priceId, ...gymConfig.membership.plan };
+}
+
 async function ensureCustomer(user: SessionUser): Promise<string> {
   const existing = await prisma.membership.findUnique({ where: { userId: user.id } });
   if (existing?.stripeCustomerId) return existing.stripeCustomerId;
 
   const stripe = getStripe();
-
-  // Reuse a customer that already exists for this email — likely from a
-  // previous system — rather than creating a duplicate.
   const found = await stripe.customers.list({ email: user.email, limit: 1 });
   const customer =
     found.data[0] ??
@@ -261,42 +259,35 @@ async function ensureCustomer(user: SessionUser): Promise<string> {
   return customer.id;
 }
 
-/** Start a subscription. Card details are only ever entered on Stripe's page. */
-export async function createCheckoutSession(
-  user: SessionUser,
-  priceId: string,
-): Promise<string> {
-  if (!stripeConfigured()) {
-    throw new AppError('Memberships are not set up yet.', 503, 'STRIPE_NOT_CONFIGURED');
-  }
-
+/**
+ * Stripe's hosted checkout. Card details are only ever entered on Stripe's
+ * page — this app has no card form and should never grow one.
+ */
+export async function createCheckoutSession(user: SessionUser): Promise<string> {
+  const plan = requirePlan();
   const customerId = await ensureCustomer(user);
+
   const session = await getStripe().checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{ price: plan.priceId, quantity: 1 }],
     success_url: appUrl('/account/membership?checkout=done'),
     cancel_url: appUrl('/account/membership?checkout=cancelled'),
     allow_promotion_codes: true,
     subscription_data: { metadata: { appUserId: user.id } },
   });
 
-  if (!session.url) throw new AppError('Could not start checkout.', 502, 'STRIPE_ERROR');
+  if (!session.url) throw memberFacingError();
   return session.url;
 }
 
-/**
- * Stripe's own portal, where a member updates their card, sees invoices or
- * cancels. Cheaper and safer than rebuilding any of that here.
- */
+/** Stripe's hosted portal for cards, invoices and cancelling. */
 export async function createPortalSession(user: SessionUser): Promise<string> {
-  if (!stripeConfigured()) {
-    throw new AppError('Memberships are not set up yet.', 503, 'STRIPE_NOT_CONFIGURED');
-  }
+  if (!stripeConfigured()) throw memberFacingError();
 
   const membership = await prisma.membership.findUnique({ where: { userId: user.id } });
   if (!membership?.stripeCustomerId) {
-    throw notFound('You do not have a membership to manage yet.');
+    throw new AppError('You do not have a membership to manage yet.', 404, 'NO_MEMBERSHIP');
   }
 
   const session = await getStripe().billingPortal.sessions.create({
@@ -306,40 +297,86 @@ export async function createPortalSession(user: SessionUser): Promise<string> {
   return session.url;
 }
 
-export async function getMembership(
-  actor: SessionUser,
-  userId: string = actor.id,
-): Promise<Membership | null> {
-  assertSelfOrStaff(actor, userId);
-  return prisma.membership.findUnique({ where: { userId } });
+function requirePlan(): Plan {
+  if (!stripeConfigured()) throw memberFacingError();
+  const plan = getPlan();
+  if (!plan) throw memberFacingError();
+  return plan;
 }
 
-/** Everyone the owner might need to chase. */
-export async function listMembershipsNeedingAttention(actor: SessionUser) {
+/** Members never see a Stripe status or error code — only this. */
+function memberFacingError(): AppError {
+  return new AppError(
+    'Memberships aren’t available right now. Please speak to the gym.',
+    503,
+    'MEMBERSHIP_UNAVAILABLE',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Owner controls
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark somebody active by hand — cash, staff comp, a family member. Logged
+ * with who did it and why, and it beats whatever Stripe says.
+ */
+export async function grantOverride(
+  actor: SessionUser,
+  memberId: string,
+  activeUntil: Date,
+  reason: string,
+): Promise<MembershipState> {
   assertCan(actor, 'manageUsers');
 
-  return prisma.membership.findMany({
-    where: {
-      OR: [
-        { status: { in: ['PAST_DUE', 'CANCELED', 'INCOMPLETE', 'NONE'] } },
-        { cancelAtPeriodEnd: true },
-      ],
-    },
-    include: { user: { select: { id: true, name: true, email: true, active: true } } },
-    orderBy: { updatedAt: 'desc' },
+  if (!reason.trim()) {
+    throw new AppError('Give a reason — it goes on the record.', 422, 'REASON_REQUIRED');
+  }
+  if (activeUntil.getTime() <= Date.now()) {
+    throw new AppError('Pick a date in the future.', 422, 'INVALID_DATE');
+  }
+
+  await prisma.membershipOverride.create({
+    data: { memberId, activeUntil, reason: reason.trim(), byUserId: actor.id },
+  });
+
+  return getMembershipState(memberId);
+}
+
+/** End an override early. The row stays as the audit trail. */
+export async function revokeOverride(
+  actor: SessionUser,
+  overrideId: string,
+): Promise<MembershipState> {
+  assertCan(actor, 'manageUsers');
+
+  const override = await prisma.membershipOverride.findUnique({ where: { id: overrideId } });
+  if (!override) throw notFound('That override no longer exists.');
+
+  await prisma.membershipOverride.update({
+    where: { id: overrideId },
+    data: { revokedAt: new Date(), revokedById: actor.id },
+  });
+
+  return getMembershipState(override.memberId);
+}
+
+export async function listOverrides(actor: SessionUser, memberId: string) {
+  assertCan(actor, 'viewMemberStrikes');
+  return prisma.membershipOverride.findMany({
+    where: { memberId },
+    orderBy: { createdAt: 'desc' },
+    include: { by: { select: { name: true } } },
   });
 }
 
 /**
- * Pull a member's subscription straight from Stripe and re-mirror it. For when
- * a webhook was missed, or an owner has just changed something in the Stripe
- * dashboard and wants it reflected now.
+ * Re-read a member's subscription from Stripe, for when a webhook was missed
+ * or an owner has just changed something in the dashboard.
  */
 export async function refreshFromStripe(actor: SessionUser, userId: string): Promise<void> {
   assertCan(actor, 'manageUsers');
-  if (!stripeConfigured()) {
-    throw new AppError('Memberships are not set up yet.', 503, 'STRIPE_NOT_CONFIGURED');
-  }
+  if (!stripeConfigured()) throw memberFacingError();
 
   const membership = await prisma.membership.findUnique({ where: { userId } });
   if (!membership?.stripeCustomerId) throw notFound('No Stripe customer for that member.');
@@ -359,5 +396,11 @@ export async function refreshFromStripe(actor: SessionUser, userId: string): Pro
     return;
   }
 
-  await syncSubscription(live);
+  // A manual refresh is always the freshest thing we have, so it overrides the
+  // out-of-order guard rather than being dropped by it.
+  await prisma.membership.update({
+    where: { userId },
+    data: { lastStripeEventAt: null },
+  });
+  await syncSubscription(live, new Date());
 }

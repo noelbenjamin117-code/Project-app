@@ -7,15 +7,7 @@ import { openBillingPortalAction, startCheckoutAction } from '@/app/actions/memb
  * Both buttons redirect to a Stripe-hosted page. On success the action
  * redirects and nothing comes back — so only a failure ever renders here.
  */
-export function MembershipActions({
-  priceId,
-  hasMembership,
-  portalOnly,
-}: {
-  priceId?: string;
-  hasMembership?: boolean;
-  portalOnly?: boolean;
-}) {
+export function MembershipActions({ mode }: { mode: 'subscribe' | 'manage' }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -27,21 +19,21 @@ export function MembershipActions({
 
   return (
     <div className="mt-4">
-      {hasMembership ? (
+      {mode === 'manage' ? (
         <button
-          className={portalOnly ? 'btn-secondary w-full' : 'btn-secondary w-full'}
+          className="btn-secondary w-full"
           disabled={pending}
           onClick={() => run(openBillingPortalAction)}
         >
-          {pending ? 'Opening…' : 'Manage membership, card and invoices'}
+          {pending ? 'Opening…' : 'Update card, invoices and cancelling'}
         </button>
       ) : (
         <button
           className="btn-primary w-full"
-          disabled={pending || !priceId}
-          onClick={() => run(() => startCheckoutAction(priceId!))}
+          disabled={pending}
+          onClick={() => run(startCheckoutAction)}
         >
-          {pending ? 'Taking you to Stripe…' : 'Choose this plan'}
+          {pending ? 'Taking you to Stripe…' : 'Start membership'}
         </button>
       )}
 

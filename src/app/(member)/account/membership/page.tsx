@@ -2,18 +2,16 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
 import { stripeConfigured } from '@/lib/stripe';
-import {
-  MEMBERSHIP_LABEL,
-  formatPrice,
-  getMembership,
-  isPaidUp,
-  listPlans,
-} from '@/lib/services/membership';
-import { formatDayDate } from '@/lib/time';
+import { getMembershipState, getPlan } from '@/lib/services/membership';
+import { formatDayDate, formatDateTime } from '@/lib/time';
 import { MembershipActions } from '@/components/membership-actions';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Never a dead end: a member without a membership lands on the plan and a
+ * button, not an error.
+ */
 export default async function MembershipPage({
   searchParams,
 }: {
@@ -23,8 +21,8 @@ export default async function MembershipPage({
   if (!user) redirect('/login');
 
   const { checkout } = await searchParams;
-  const membership = await getMembership(user);
-  const plans = stripeConfigured() ? await listPlans() : [];
+  const state = await getMembershipState(user.id);
+  const plan = getPlan();
 
   return (
     <div className="space-y-6">
@@ -37,7 +35,7 @@ export default async function MembershipPage({
 
       {checkout === 'done' && (
         <p className="rounded-lg bg-ok/10 px-4 py-3 text-sm text-ok">
-          Thanks — your membership is set up. It can take a few seconds to show below.
+          Thanks — you're all set. It can take a few seconds to show below.
         </p>
       )}
       {checkout === 'cancelled' && (
@@ -46,88 +44,88 @@ export default async function MembershipPage({
         </p>
       )}
 
-      {!stripeConfigured() ? (
-        <p className="card p-6 text-center text-white/50">
-          Memberships aren't set up yet. Speak to the gym.
-        </p>
-      ) : isPaidUp(membership) ? (
+      {state.source === 'OVERRIDE' && state.overrideUntil ? (
+        <section className="card border-ok/40 p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-xl font-bold">Membership active</p>
+            <span className="pill bg-ok/15 text-ok">Active</span>
+          </div>
+          <p className="mt-2 text-sm text-white/60">
+            Set up by the gym, running until{' '}
+            <span className="font-semibold text-white">
+              {formatDayDate(state.overrideUntil)}
+            </span>
+            .
+          </p>
+        </section>
+      ) : state.state === 'ACTIVE' ? (
         <section className="card border-ok/40 p-5">
           <div className="flex items-baseline justify-between gap-3">
             <div>
               <p className="text-sm text-white/50">Your plan</p>
-              <p className="text-xl font-bold">{membership?.planName ?? 'Membership'}</p>
+              <p className="text-xl font-bold">{plan?.name ?? 'Membership'}</p>
             </div>
-            <span
-              className={`pill ${
-                membership?.status === 'PAST_DUE' ? 'bg-warn/15 text-warn' : 'bg-ok/15 text-ok'
-              }`}
-            >
-              {MEMBERSHIP_LABEL[membership!.status]}
-            </span>
+            <span className="pill bg-ok/15 text-ok">Active</span>
           </div>
 
-          {membership?.status === 'PAST_DUE' && (
-            <p className="mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn">
-              Your last payment didn't go through. Update your card below and it'll retry — your
-              bookings aren't affected.
-            </p>
-          )}
-
-          {membership?.currentPeriodEnd && (
+          {state.currentPeriodEnd && (
             <p className="mt-3 text-sm text-white/60">
-              {membership.cancelAtPeriodEnd ? (
-                <>
-                  Ends on{' '}
-                  <span className="font-semibold text-white">
-                    {formatDayDate(membership.currentPeriodEnd)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  Renews on{' '}
-                  <span className="font-semibold text-white">
-                    {formatDayDate(membership.currentPeriodEnd)}
-                  </span>
-                </>
-              )}
+              Renews on{' '}
+              <span className="font-semibold text-white">
+                {formatDayDate(state.currentPeriodEnd)}
+              </span>
             </p>
           )}
 
-          <MembershipActions hasMembership />
+          <MembershipActions mode="manage" />
         </section>
-      ) : (
-        <>
-          <p className="text-white/60">
-            {membership?.status === 'CANCELED'
-              ? 'Your membership has ended. Pick a plan to start again.'
-              : 'Choose a membership to get started.'}
+      ) : state.state === 'GRACE' ? (
+        <section className="card border-warn/40 bg-warn/5 p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-xl font-bold text-warn">Payment failed</p>
+            <span className="pill bg-warn/15 text-warn">Action needed</span>
+          </div>
+          <p className="mt-2 text-white/80">
+            Your last payment didn't go through. Update your card by{' '}
+            <span className="font-semibold text-white">
+              {formatDateTime(state.graceEndsAt!)}
+            </span>{' '}
+            to keep booking classes.
+          </p>
+          <p className="mt-2 text-sm text-white/50">
+            Classes you've already booked are unaffected.
           </p>
 
-          {plans.length === 0 ? (
-            <p className="card p-6 text-center text-white/50">
-              No plans are available yet. Speak to the gym.
+          <MembershipActions mode="manage" />
+        </section>
+      ) : (
+        <section className="card p-5">
+          <p className="text-white/70">
+            {state.status === 'CANCELED'
+              ? 'Your membership has ended. Start it again to book classes.'
+              : state.status === 'PAST_DUE'
+                ? "Your payment didn't go through, so booking is paused. Update your card and it'll come straight back."
+                : 'You need a membership to book classes.'}
+          </p>
+
+          {!stripeConfigured() || !plan ? (
+            <p className="mt-4 text-sm text-white/50">
+              Memberships aren't available online yet — please speak to the gym.
             </p>
           ) : (
-            <div className="space-y-3">
-              {plans.map((plan) => (
-                <div key={plan.priceId} className="card p-5">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-lg font-bold">{plan.productName}</p>
-                    <p className="font-semibold text-brand">{formatPrice(plan)}</p>
-                  </div>
-                  {plan.description && (
-                    <p className="mt-1 text-sm text-white/60">{plan.description}</p>
-                  )}
-                  <MembershipActions priceId={plan.priceId} />
-                </div>
-              ))}
+            <div className="mt-5 rounded-lg border border-edge bg-ink p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-lg font-bold">{plan.name}</p>
+                <p className="font-semibold text-brand">{plan.priceLabel}</p>
+              </div>
+              <p className="mt-1 text-sm text-white/60">{plan.description}</p>
+
+              <MembershipActions
+                mode={state.status === 'PAST_DUE' ? 'manage' : 'subscribe'}
+              />
             </div>
           )}
-
-          {membership?.stripeCustomerId && (
-            <MembershipActions hasMembership portalOnly />
-          )}
-        </>
+        </section>
       )}
 
       <p className="text-center text-xs text-white/30">

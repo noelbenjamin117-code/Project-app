@@ -43,6 +43,30 @@ export const gymConfig = {
     waitlistPromotionMinutes: 30,
   },
 
+  membership: {
+    /**
+     * How long a member keeps booking after Stripe reports a failed payment.
+     * Stripe retries within this window, so most of these fix themselves —
+     * the point is not to lock someone out over a card that expired.
+     */
+    pastDueGraceDays: 3,
+
+    /**
+     * The single plan sold in v1. Limited plans (N classes a week) and class
+     * packs are deliberately not implemented yet — see the note in
+     * src/lib/domain/membership.ts.
+     *
+     * The Stripe price id lives in STRIPE_PRICE_ID rather than here, because
+     * it differs between test and live mode and would otherwise need a code
+     * change to switch over.
+     */
+    plan: {
+      name: 'Unlimited',
+      priceLabel: '£89.99 a month',
+      description: 'Train whenever. Be part of everything.',
+    },
+  },
+
   whiteboard: {
     /** How often the TV pulls fresh data. */
     pollSeconds: 30,

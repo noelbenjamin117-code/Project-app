@@ -51,6 +51,8 @@ model User {
   cancelledClasses   ClassInstance[]     @relation("ClassCanceller")
   notifications      Notification[]
   membership         Membership?
+  membershipOverrides MembershipOverride[] @relation("MembershipOverrideMember")
+  grantedOverrides    MembershipOverride[] @relation("MembershipOverrideActor")
 
   @@index([role])
 }
@@ -457,23 +459,49 @@ model Membership {
 
   stripeCustomerId     String? @unique
   stripeSubscriptionId String? @unique
-  /// Which Stripe price they are on — this is what identifies the tier.
-  stripePriceId        String?
-  /// Snapshot of the plan's name, so the UI reads correctly even if the
-  /// product is later renamed or archived in Stripe.
-  planName             String?
 
+  /// Mirrored straight from Stripe. Eligibility is never read from here
+  /// directly — it is computed, so it cannot go stale.
   status MembershipStatus @default(NONE)
-  /// Paid up to here. Renewals move it forward automatically.
-  currentPeriodEnd  DateTime?
-  cancelAtPeriodEnd Boolean   @default(false)
-  /// Set when Stripe reports a failed payment, cleared when one succeeds.
-  paymentFailedAt   DateTime?
+  /// Paid up to here; renewals move it forward on their own.
+  currentPeriodEnd DateTime?
+
+  /// When the subscription first went past due. Needed to work out whether the
+  /// grace period has run out, and not derivable from Stripe without an API
+  /// call on the booking path.
+  pastDueSince DateTime?
+
+  /// Stripe delivers events out of order. Anything created at or before this
+  /// is ignored, so a late-arriving stale event cannot undo a newer one.
+  lastStripeEventAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
+}
+
+/// An owner marking somebody active by hand — cash payment, staff comp, a
+/// family member. Rows are kept forever as the audit trail, and the newest
+/// unexpired one wins over whatever Stripe says.
+model MembershipOverride {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation("MembershipOverrideMember", fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// Active up to this instant.
+  activeUntil DateTime
+  reason      String
+  byUserId    String
+  by          User   @relation("MembershipOverrideActor", fields: [byUserId], references: [id], onDelete: Cascade)
+
+  /// Set when an owner ends an override early. Never deleted.
+  revokedAt   DateTime?
+  revokedById String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, activeUntil])
 }
 
 /// Webhooks arrive more than once and out of order. Recording the ids we have

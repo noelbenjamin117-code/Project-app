@@ -7,6 +7,8 @@ import { conflict, notFound } from '@/lib/errors';
 import { formatDeadline, formatDateTime } from '@/lib/time';
 import { evaluateCancellation, type CancellationOutcome } from '@/lib/domain/cancellation';
 import { getStrikeState, recordStrike, removeStrike } from '@/lib/services/strikes';
+import { getMembershipState } from '@/lib/services/membership';
+import { explainCannotBook } from '@/lib/domain/membership';
 import type { StrikeState } from '@/lib/domain/strikes';
 
 type Tx = Prisma.TransactionClient;
@@ -50,9 +52,16 @@ export async function bookClass(
   const bookingForSomeoneElse = memberId !== actor.id;
   if (bookingForSomeoneElse) assertCan(actor, 'markAttendance');
 
-  // A suspended member cannot book — but a coach putting someone in by hand is
-  // a deliberate override, so it is only checked for self-service bookings.
+  // Both of these are only checked for self-service bookings: a coach putting
+  // someone in by hand is a deliberate override.
   if (!bookingForSomeoneElse) {
+    // Membership first — needing to pay is a different problem from being
+    // suspended, and the member should be told the one that actually applies.
+    const membership = await getMembershipState(memberId, now);
+    if (!membership.canBook) {
+      throw conflict(explainCannotBook(membership), 'MEMBERSHIP_REQUIRED');
+    }
+
     const state = await getStrikeState(memberId, now);
     if (state.suspended && state.suspendedUntil) {
       throw conflict(
