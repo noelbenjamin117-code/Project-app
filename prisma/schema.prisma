@@ -35,6 +35,9 @@ model User {
   // books classes and logs scores exactly like a MEMBER.
   role         Role     @default(MEMBER)
   active       Boolean  @default(true)
+  /// What they were paying for in the old system, kept only so the gym knows
+  /// which plan to sell them during migration. Not used for anything else.
+  legacyPlan   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -53,6 +56,7 @@ model User {
   membership         Membership?
   membershipOverrides MembershipOverride[] @relation("MembershipOverrideMember")
   grantedOverrides    MembershipOverride[] @relation("MembershipOverrideActor")
+  claimTokens         ClaimToken[]
 
   @@index([role])
 }
@@ -502,6 +506,27 @@ model MembershipOverride {
   createdAt DateTime @default(now())
 
   @@index([memberId, activeUntil])
+}
+
+/// A single-use link that lets an existing member claim the account created
+/// for them during migration. Signs them in once, then expires.
+model ClaimToken {
+  id     String @id @default(cuid())
+  /// The random value that appears in the URL.
+  token  String @unique
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  /// Bumped each time an invite is re-sent, so the dashboard can show it.
+  sentCount Int      @default(0)
+  lastSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([usedAt])
 }
 
 /// Webhooks arrive more than once and out of order. Recording the ids we have

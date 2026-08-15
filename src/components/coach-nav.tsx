@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/coach/program', label: 'Programming' },
   { href: '/coach/templates', label: 'Schedule' },
   { href: '/coach/members', label: 'Members' },
+  { href: '/coach/migration', label: 'Migration' },
 ];
 
 export function CoachNav() {
