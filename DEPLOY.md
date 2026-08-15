@@ -178,3 +178,83 @@ project → **Settings** → **Domains**.
   wipes everyone, so it's only sensible on day one.
 - **You want the demo gym back** (40 fake members, a full leaderboard) — that
   needs a terminal, so it's a job for someone with a laptop.
+
+---
+
+# Memberships with Stripe
+
+Optional — the app runs fine without it, and membership features stay hidden
+until it's configured. When it is set up, Stripe is the source of truth: the
+app mirrors what Stripe says and never asks you to type a renewal date.
+
+**Members are never blocked from booking when their payment lapses.** That was
+a deliberate choice: you get a list to chase instead of a member turned away at
+the door. It's a one-line change if you ever want it stricter.
+
+## 1. Your own Stripe account
+
+Before anything else, check the Stripe account is genuinely yours: log in at
+**stripe.com** directly, not through another gym platform. If your customers
+and subscriptions are there, they can move with you. If your old platform owns
+the account, your members will have to subscribe again — that's a churn event
+worth planning, not a technical detail.
+
+## 2. Create your membership tiers in Stripe
+
+Stripe → **Product catalogue** → **Add product**. One product per tier, each
+with a **recurring** price (monthly or whatever you sell).
+
+The app reads your live prices straight from Stripe, so there's nothing to
+configure here and nothing to redeploy. Add a tier, change a price, archive an
+old one — the app follows.
+
+## 3. Add the keys to Vercel
+
+Stripe → **Developers** → **API keys**. Copy the **secret key**.
+
+Vercel → Settings → Environment Variables:
+
+| Name | Value |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | `sk_test_…` while you're testing, `sk_live_…` when real |
+
+Tick Production, Preview and Development.
+
+## 4. Point Stripe at the webhook
+
+This is what keeps memberships current without you touching anything.
+
+Stripe → **Developers** → **Webhooks** → **Add endpoint**.
+
+- **Endpoint URL**: `https://your-app.vercel.app/api/stripe/webhook`
+- **Events**: `customer.subscription.created`, `customer.subscription.updated`,
+  `customer.subscription.deleted`, `checkout.session.completed`,
+  `invoice.paid`, `invoice.payment_failed`
+
+Stripe then shows a **signing secret** starting `whsec_…`. Add it to Vercel as
+`STRIPE_WEBHOOK_SECRET`, then redeploy.
+
+Without that secret the endpoint refuses every request — which is the point.
+It's the only thing stopping someone who finds the URL from marking themselves
+paid up.
+
+## 5. Test it before going live
+
+Use your test keys and Stripe's card `4242 4242 4242 4242`, any future expiry,
+any CVC. Sign in as a member, go to **Account → Membership**, choose a plan,
+and pay. Within a second or two the same page should show the plan as active,
+and the member should appear as active on your Members page.
+
+Then swap the test keys for live ones and add a second webhook endpoint in
+live mode.
+
+## What members and you each see
+
+**Members** get Account → Membership: their plan, what they pay, when it
+renews, and a button into Stripe's own portal to change a card, download
+invoices or cancel. Card details never touch this app.
+
+**You** get a status against every name on the Members page, and a membership
+panel on each member with their plan and renewal date. Changes are made in
+Stripe and appear here on their own; there's a **Re-check with Stripe** button
+if you've just changed something and don't want to wait.

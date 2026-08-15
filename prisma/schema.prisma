@@ -50,6 +50,7 @@ model User {
   checkedInBookings  Booking[]           @relation("CheckedInBy")
   cancelledClasses   ClassInstance[]     @relation("ClassCanceller")
   notifications      Notification[]
+  membership         Membership?
 
   @@index([role])
 }
@@ -424,6 +425,65 @@ model LiftResult {
   createdAt DateTime @default(now())
 
   @@index([memberId, movementId, reps])
+}
+
+// ---------------------------------------------------------------------------
+// Membership
+//
+// Stripe is the source of truth for who is paying. These rows are a local
+// mirror of it, kept current by webhooks, so that rendering a roster does not
+// mean calling Stripe two hundred times.
+// ---------------------------------------------------------------------------
+
+enum MembershipStatus {
+  /// Never subscribed.
+  NONE
+  ACTIVE
+  TRIALING
+  /// Payment failed; Stripe is retrying. Still a member as far as the gym is
+  /// concerned — this is the state a bounced direct debit lands in.
+  PAST_DUE
+  /// Subscribed but the payment never completed.
+  INCOMPLETE
+  /// Ended, either by the member or after retries were exhausted.
+  CANCELED
+  PAUSED
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+  /// Which Stripe price they are on — this is what identifies the tier.
+  stripePriceId        String?
+  /// Snapshot of the plan's name, so the UI reads correctly even if the
+  /// product is later renamed or archived in Stripe.
+  planName             String?
+
+  status MembershipStatus @default(NONE)
+  /// Paid up to here. Renewals move it forward automatically.
+  currentPeriodEnd  DateTime?
+  cancelAtPeriodEnd Boolean   @default(false)
+  /// Set when Stripe reports a failed payment, cleared when one succeeds.
+  paymentFailedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+/// Webhooks arrive more than once and out of order. Recording the ids we have
+/// already handled keeps replays from double-applying anything.
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
 }
 
 // ---------------------------------------------------------------------------

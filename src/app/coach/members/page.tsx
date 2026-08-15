@@ -4,6 +4,8 @@ import { getSessionUser } from '@/lib/auth';
 import { assertCan, can } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { getStrikeStates } from '@/lib/services/strikes';
+import { MEMBERSHIP_LABEL, isPaidUp } from '@/lib/services/membership';
+import { stripeConfigured } from '@/lib/stripe';
 import { suggestPassword } from '@/lib/services/users';
 import { formatDayDate } from '@/lib/time';
 import { AddMemberPanel } from '@/components/add-member-panel';
@@ -18,7 +20,13 @@ export default async function MembersPage() {
   const members = await prisma.user.findMany({
     where: { active: true },
     orderBy: [{ role: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, email: true, role: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      membership: { select: { status: true, cancelAtPeriodEnd: true } },
+    },
   });
 
   const states = await getStrikeStates(members.map((m) => m.id));
@@ -65,6 +73,22 @@ export default async function MembersPage() {
                     </p>
                     <p className="truncate text-sm text-white/40">{member.email}</p>
                   </div>
+
+                  {/* Membership sits next to strikes so the owner sees both
+                      reasons a member might need chasing in one place. */}
+                  {stripeConfigured() && (
+                    <span
+                      className={`pill ${
+                        member.membership?.status === 'PAST_DUE'
+                          ? 'bg-warn/15 text-warn'
+                          : isPaidUp(member.membership)
+                            ? 'bg-ok/15 text-ok'
+                            : 'bg-bad/15 text-bad'
+                      }`}
+                    >
+                      {MEMBERSHIP_LABEL[member.membership?.status ?? 'NONE']}
+                    </span>
+                  )}
 
                   {state.suspended && state.suspendedUntil ? (
                     <span className="pill bg-bad/15 text-bad">

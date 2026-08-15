@@ -6,6 +6,9 @@ import { prisma } from '@/lib/db';
 import { notFound } from '@/lib/errors';
 import { getStrikeState } from '@/lib/services/strikes';
 import { suggestPassword } from '@/lib/services/users';
+import { MEMBERSHIP_LABEL, isPaidUp } from '@/lib/services/membership';
+import { stripeConfigured } from '@/lib/stripe';
+import { MemberMembershipPanel } from '@/components/member-membership-panel';
 import { formatDateTime, formatDayDate } from '@/lib/time';
 import { StrikeAdmin, type StrikeRowView } from '@/components/strike-admin';
 import { MemberAccountPanel } from '@/components/member-account-panel';
@@ -71,6 +74,8 @@ export default async function MemberDetailPage({
     where: { memberId: member.id, checkedInAt: { not: null } },
   });
 
+  const membership = await prisma.membership.findUnique({ where: { userId: member.id } });
+
   return (
     <div className="space-y-6">
       <div>
@@ -83,6 +88,30 @@ export default async function MemberDetailPage({
           {!member.active && <span className="pill ml-2 bg-bad/15 text-bad">Deactivated</span>}
         </p>
       </div>
+
+      {stripeConfigured() && (
+        <MemberMembershipPanel
+          userId={member.id}
+          membership={{
+            statusLabel: MEMBERSHIP_LABEL[membership?.status ?? 'NONE'],
+            tone:
+              membership?.status === 'PAST_DUE'
+                ? 'warn'
+                : isPaidUp(membership)
+                  ? 'ok'
+                  : 'bad',
+            planName: membership?.planName ?? null,
+            periodEndLabel: membership?.currentPeriodEnd
+              ? formatDayDate(membership.currentPeriodEnd)
+              : null,
+            cancelAtPeriodEnd: membership?.cancelAtPeriodEnd ?? false,
+            paymentFailedLabel: membership?.paymentFailedAt
+              ? formatDayDate(membership.paymentFailedAt)
+              : null,
+            hasStripeCustomer: Boolean(membership?.stripeCustomerId),
+          }}
+        />
+      )}
 
       {can(user, 'manageUsers') && (
         <MemberAccountPanel
