@@ -20,31 +20,66 @@ export interface TemplateShape {
   notes: string | null;
 }
 
+/** Every class runs 42 minutes — the 42 in B42. */
+export const CLASS_DURATION_MINUTES = 42;
+
 /**
  * B42's timetable, by day. Sunday is day 7; there are no Saturday classes.
  *
+ * Capacity belongs to the class type rather than the time of day, because the
+ * format decides how many people fit: BUILD42 is a lifting session on twenty
+ * racks, BLITZ42 packs thirty in.
+ *
  * This is only the starting point — every one of these becomes an editable
- * class template, so times, capacities, coaches and rules can all be changed
- * in the Schedule page without touching code.
+ * class template, so times, capacities, coaches, durations and rules can all
+ * be changed in the Schedule page without touching code.
  */
 const TIMETABLE: Array<{
   dayOfWeek: number;
   name: string;
   times: string[];
+  capacity: number;
+  /** Overrides the usual time-of-day cancellation rule for this class type. */
+  cancelPolicy?: 'NONE';
   notes?: string;
 }> = [
-  { dayOfWeek: 1, name: 'BLITZ42', times: ['06:00', '07:00', '09:30', '17:30', '18:30'] },
-  { dayOfWeek: 2, name: 'ATHELERIX42', times: ['06:00', '07:00', '09:30', '17:30', '18:30'] },
-  { dayOfWeek: 2, name: 'Run Club', times: ['18:30'] },
-  { dayOfWeek: 3, name: 'HYROX', times: ['06:00', '07:00', '18:30'] },
-  { dayOfWeek: 3, name: 'CALIBRATE42', times: ['17:30'] },
-  { dayOfWeek: 4, name: 'BUILD42', times: ['06:00', '07:00', '09:30', '16:30', '17:30'] },
-  { dayOfWeek: 5, name: 'HYROX', times: ['06:00', '07:00', '09:30', '17:30'] },
+  {
+    dayOfWeek: 1,
+    name: 'BLITZ42',
+    times: ['06:00', '07:00', '09:30', '17:30', '18:30'],
+    capacity: 30,
+  },
+  {
+    dayOfWeek: 2,
+    name: 'ATHELERIX42',
+    times: ['06:00', '07:00', '09:30', '17:30', '18:30'],
+    capacity: 24,
+  },
+  {
+    dayOfWeek: 2,
+    name: 'Run Club',
+    times: ['18:30'],
+    capacity: 30,
+    notes: 'Every pace welcome — free to book for all members.',
+  },
+  { dayOfWeek: 3, name: 'HYROX', times: ['06:00', '07:00', '18:30'], capacity: 24 },
+  { dayOfWeek: 3, name: 'CALIBRATE42', times: ['17:30'], capacity: 30 },
+  {
+    dayOfWeek: 4,
+    name: 'BUILD42',
+    times: ['06:00', '07:00', '09:30', '16:30', '17:30'],
+    capacity: 20,
+    // BUILD42 is free to cancel whatever the hour, so it opts out of the
+    // 9pm-the-night-before rule that the other early classes carry.
+    cancelPolicy: 'NONE',
+  },
+  { dayOfWeek: 5, name: 'HYROX', times: ['06:00', '07:00', '09:30', '17:30'], capacity: 30 },
   {
     dayOfWeek: 7,
     name: 'HYROX',
     times: ['09:30'],
-    notes: 'Drop-in £5 — pay at the desk, not included in membership.',
+    capacity: 30,
+    notes: 'Pay-as-you-go — we’ll send you a payment link once you book.',
   },
 ];
 
@@ -73,22 +108,21 @@ function ruleForTime(startTimeLocal: string): {
   return { cancelPolicyType: 'RELATIVE', cancelAbsoluteTimeLocal: null, cancelRelativeHours: 2 };
 }
 
-/** Room capacity also follows the time of day rather than the class type. */
-function capacityForTime(startTimeLocal: string): number {
-  if (startTimeLocal === '09:30') return 12;
-  if (startTimeLocal < '12:00') return 16;
-  return 20;
-}
+const FREE_TO_CANCEL = {
+  cancelPolicyType: 'NONE' as const,
+  cancelAbsoluteTimeLocal: null,
+  cancelRelativeHours: null,
+};
 
 export const DEFAULT_TEMPLATE_SHAPES: TemplateShape[] = TIMETABLE.flatMap((entry) =>
   entry.times.map((startTimeLocal) => ({
     name: entry.name,
     dayOfWeek: entry.dayOfWeek,
     startTimeLocal,
-    durationMinutes: 60,
-    capacity: capacityForTime(startTimeLocal),
+    durationMinutes: CLASS_DURATION_MINUTES,
+    capacity: entry.capacity,
     notes: entry.notes ?? null,
-    ...ruleForTime(startTimeLocal),
+    ...(entry.cancelPolicy === 'NONE' ? FREE_TO_CANCEL : ruleForTime(startTimeLocal)),
   })),
 );
 
