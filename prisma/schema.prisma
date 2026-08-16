@@ -51,12 +51,14 @@ model User {
   liftResults        LiftResult[]
   authoredWods       WodDefinition[]
   checkedInBookings  Booking[]           @relation("CheckedInBy")
+  markedPaidBookings Booking[]           @relation("MarkedPaid")
   cancelledClasses   ClassInstance[]     @relation("ClassCanceller")
   notifications      Notification[]
   membership         Membership?
   membershipOverrides MembershipOverride[] @relation("MembershipOverrideMember")
   grantedOverrides    MembershipOverride[] @relation("MembershipOverrideActor")
   claimTokens         ClaimToken[]
+  passPacks           PassPack[]
 
   @@index([role])
 }
@@ -94,6 +96,10 @@ model ClassTemplate {
   /// anything of that sort gets communicated.
   notes String?
 
+  /// Pay-as-you-go: no membership covers it, anyone may book it, and the gym
+  /// collects payment separately. The Sunday session is the one of these.
+  payg Boolean @default(false)
+
   /// Local dates (yyyy-MM-dd) bounding when this template generates classes.
   activeFrom  String
   activeUntil String?
@@ -120,6 +126,7 @@ model ClassInstance {
   name String
   /// Snapshotted from the template, same as capacity and the cancellation rule.
   notes String?
+  payg  Boolean @default(false)
   /// Local calendar date, "yyyy-MM-dd". Paired with templateId for idempotent
   /// generation, and used for "today" lookups without timezone gymnastics.
   date String
@@ -201,6 +208,18 @@ model Booking {
   updatedAt DateTime @updatedAt
 
   strikes StrikeEvent[]
+
+  /// Pay-as-you-go classes only: the coach ticks the drop-in fee off once it
+  /// is collected. Nothing here takes payment — it is a record of what the
+  /// gym has been paid, so the roster shows who still owes.
+  paidAt   DateTime?
+  paidById String?
+  paidBy   User?     @relation("MarkedPaid", fields: [paidById], references: [id], onDelete: SetNull)
+
+  /// Which pack paid for this booking, if a pass was spent. Cancelling in
+  /// time hands the pass back; cancelling late or not turning up does not.
+  passPackId String?
+  passPack   PassPack? @relation(fields: [passPackId], references: [id], onDelete: SetNull)
 
   // A partial unique index on (classInstanceId, memberId) WHERE status <>
   // 'CANCELLED' is added by migration — Prisma cannot express it. It stops a
@@ -464,6 +483,10 @@ model Membership {
   stripeCustomerId     String? @unique
   stripeSubscriptionId String? @unique
 
+  /// Which plan they are on, from the price's `b42_plan` metadata. Needed
+  /// because plans differ in what they may book and how often.
+  planKey String?
+
   /// Mirrored straight from Stripe. Eligibility is never read from here
   /// directly — it is computed, so it cannot go stale.
   status MembershipStatus @default(NONE)
@@ -506,6 +529,33 @@ model MembershipOverride {
   createdAt DateTime @default(now())
 
   @@index([memberId, activeUntil])
+}
+
+/// A block of class passes bought outright. Passes are consumed one per
+/// booking and the pack expires whole, so a member always knows where they
+/// stand without the app having to age individual passes.
+model PassPack {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  passesTotal Int
+  /// Bought passes are counted here rather than by scanning bookings, so a
+  /// deleted booking can never quietly hand somebody a free class.
+  passesUsed  Int @default(0)
+
+  expiresAt   DateTime
+  purchasedAt DateTime @default(now())
+
+  /// Stripe's checkout session, kept so a repeated webhook cannot credit the
+  /// same purchase twice.
+  stripeSessionId String? @unique
+  /// How the gym describes it — "10 classes", say.
+  label           String?
+
+  bookings Booking[]
+
+  @@index([memberId, expiresAt])
 }
 
 /// A single-use link that lets an existing member claim the account created

@@ -46,6 +46,7 @@ export default async function RosterPage({ params }: { params: Promise<{ id: str
     riskLevel: entry.riskLevel,
     strikeSummary: `${entry.strikes.currentWeight}/${entry.strikes.threshold}`,
     membershipLapsed: entry.membershipLapsed,
+    paid: entry.paidAt != null,
   });
 
   const started = roster.classInstance.startsAt <= now;
@@ -108,6 +109,7 @@ export default async function RosterPage({ params }: { params: Promise<{ id: str
         classStarted={started}
         classCancelled={roster.classInstance.status === 'CANCELLED'}
         canForgive={can(user, 'forgiveStrike')}
+        payg={roster.classInstance.payg}
       />
 
       <ClassAdminPanel

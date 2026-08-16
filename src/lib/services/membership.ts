@@ -150,7 +150,11 @@ export async function syncSubscription(
   }
 
   const status = toMembershipStatus(subscription.status);
-  const periodEnd = subscription.items.data[0]?.current_period_end ?? null;
+  const item = subscription.items.data[0];
+  const periodEnd = item?.current_period_end ?? null;
+  // Which plan they are on decides what they may book, so it comes across
+  // with the status rather than being looked up later.
+  const planKey = item?.price?.metadata?.b42_plan ?? null;
 
   // Stamp when they first went past due, and clear it the moment they recover,
   // since the grace window is measured from that instant.
@@ -164,6 +168,7 @@ export async function syncSubscription(
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
       status,
+      planKey,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
       pastDueSince,
       lastStripeEventAt: eventAt,
@@ -172,6 +177,7 @@ export async function syncSubscription(
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
       status,
+      planKey,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
       pastDueSince,
       lastStripeEventAt: eventAt,
@@ -224,16 +230,106 @@ export async function recordPaymentSuccess(customerId: string): Promise<void> {
 
 export interface Plan {
   priceId: string;
+  planKey: string;
   name: string;
   priceLabel: string;
   description: string;
+  amount: number | null;
+  currency: string;
 }
 
-/** v1 sells exactly one plan. */
-export function getPlan(): Plan | null {
-  const priceId = process.env.STRIPE_PRICE_ID;
-  if (!priceId) return null;
-  return { priceId, ...gymConfig.membership.plan };
+/**
+ * The gym's plans, read from its own Stripe prices.
+ *
+ * A price is a B42 plan if it carries `b42_plan` metadata naming one of the
+ * keys in config. That keeps pricing in Stripe, where the money is, and the
+ * booking rules in config, where they can be reasoned about.
+ */
+export async function listPlans(): Promise<Plan[]> {
+  if (!stripeConfigured()) return [];
+
+  const prices = await getStripe().prices.list({
+    active: true,
+    type: 'recurring',
+    limit: 100,
+  });
+
+  const configured = gymConfig.membership.plans as Record<
+    string,
+    { name: string; priceLabel: string; description: string }
+  >;
+
+  return prices.data
+    .flatMap((price) => {
+      const planKey = price.metadata?.b42_plan;
+      const rules = planKey ? configured[planKey] : undefined;
+      if (!planKey || !rules) return [];
+      return [
+        {
+          priceId: price.id,
+          planKey,
+          name: rules.name,
+          priceLabel: rules.priceLabel,
+          description: rules.description,
+          amount: price.unit_amount,
+          currency: price.currency,
+        },
+      ];
+    })
+    .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0));
+}
+
+/** One-off pass packs, also read from Stripe. */
+export interface PackOffer {
+  priceId: string;
+  label: string;
+  passes: number;
+  expiryDays: number;
+  amount: number | null;
+  currency: string;
+}
+
+export async function listPackOffers(): Promise<PackOffer[]> {
+  if (!stripeConfigured()) return [];
+
+  const prices = await getStripe().prices.list({
+    active: true,
+    type: 'one_time',
+    expand: ['data.product'],
+    limit: 100,
+  });
+
+  return prices.data
+    .flatMap((price) => {
+      const passes = Number(price.metadata?.b42_pack_passes);
+      if (!Number.isFinite(passes) || passes <= 0) return [];
+
+      const product = price.product;
+      const label =
+        typeof product !== 'string' && 'name' in product ? product.name : `${passes} classes`;
+
+      return [
+        {
+          priceId: price.id,
+          label,
+          passes,
+          expiryDays:
+            Number(price.metadata?.b42_pack_days) || gymConfig.membership.packs.defaultExpiryDays,
+          amount: price.unit_amount,
+          currency: price.currency,
+        },
+      ];
+    })
+    .sort((a, b) => a.passes - b.passes);
+}
+
+export function formatMoney(amount: number | null, currency: string): string {
+  if (amount == null) return '';
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: amount % 100 === 0 ? 0 : 2,
+  }).format(amount / 100);
 }
 
 async function ensureCustomer(user: SessionUser): Promise<string> {
@@ -263,14 +359,17 @@ async function ensureCustomer(user: SessionUser): Promise<string> {
  * Stripe's hosted checkout. Card details are only ever entered on Stripe's
  * page — this app has no card form and should never grow one.
  */
-export async function createCheckoutSession(user: SessionUser): Promise<string> {
-  const plan = requirePlan();
+export async function createCheckoutSession(
+  user: SessionUser,
+  priceId: string,
+): Promise<string> {
+  if (!stripeConfigured()) throw memberFacingError();
   const customerId = await ensureCustomer(user);
 
   const session = await getStripe().checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
-    line_items: [{ price: plan.priceId, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: appUrl('/account/membership?checkout=done'),
     cancel_url: appUrl('/account/membership?checkout=cancelled'),
     allow_promotion_codes: true,
@@ -295,13 +394,6 @@ export async function createPortalSession(user: SessionUser): Promise<string> {
     return_url: appUrl('/account/membership'),
   });
   return session.url;
-}
-
-function requirePlan(): Plan {
-  if (!stripeConfigured()) throw memberFacingError();
-  const plan = getPlan();
-  if (!plan) throw memberFacingError();
-  return plan;
 }
 
 /** Members never see a Stripe status or error code — only this. */

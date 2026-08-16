@@ -52,18 +52,70 @@ export const gymConfig = {
     pastDueGraceDays: 3,
 
     /**
-     * The single plan sold in v1. Limited plans (N classes a week) and class
-     * packs are deliberately not implemented yet — see the note in
-     * src/lib/domain/membership.ts.
+     * What each plan lets a member book.
      *
-     * The Stripe price id lives in STRIPE_PRICE_ID rather than here, because
-     * it differs between test and live mode and would otherwise need a code
-     * change to switch over.
+     * The key is matched against the `b42_plan` metadata on the Stripe price,
+     * so pricing lives in Stripe and the rules live here. Adding a plan means
+     * adding a key in both places, and nothing else.
+     *
+     * `allows: 'ALL'` means every class the gym runs except pay-as-you-go
+     * ones, which no membership ever covers.
      */
-    plan: {
-      name: 'Unlimited',
-      priceLabel: '£89.99 a month',
-      description: 'Train whenever. Be part of everything.',
+    plans: {
+      UNLIMITED: {
+        name: 'Unlimited',
+        priceLabel: '£89.99 a month',
+        description: 'Train whenever. Be part of everything.',
+        weeklyLimit: null,
+        allows: 'ALL',
+      },
+      TIER1: {
+        name: 'B42 Tier 1',
+        priceLabel: '£80.99 a month',
+        description: 'Our most popular routine. Train up to 3x per week.',
+        weeklyLimit: 3,
+        allows: 'ALL',
+      },
+      TIER2: {
+        name: 'B42 Tier 2',
+        priceLabel: '£74.99 a month',
+        description: 'Stay consistent. Train up to 2x per week.',
+        weeklyLimit: 2,
+        allows: 'ALL',
+      },
+      HYROX_WF: {
+        name: 'HYROX Weds & Fri',
+        priceLabel: '£54.99 a month',
+        description: 'HYROX focused. Built for all who enjoy intensity.',
+        weeklyLimit: null,
+        // Only the HYROX sessions, and only on Wednesday and Friday.
+        allows: [{ classNames: ['HYROX'], days: [3, 5] }],
+      },
+      OFF_PEAK: {
+        name: 'Off Peak',
+        priceLabel: '£50.99 a month',
+        description: 'Train around the rush. 9:30am sessions and 4:30pm Thursdays.',
+        weeklyLimit: null,
+        // Any 9:30am class, plus the Thursday 4:30pm.
+        allows: [{ times: ['09:30'] }, { days: [4], times: ['16:30'] }],
+      },
+    },
+
+    /**
+     * A member's week, for the plans that cap how often they train. Monday to
+     * Sunday rather than a rolling seven days, because that is what can be
+     * explained at the desk without anybody getting out a calendar.
+     */
+    weekStartsOn: 1,
+
+    packs: {
+      /**
+       * Passes are sold as one-off Stripe prices carrying `b42_pack_passes`
+       * metadata, so sizes and prices are set in Stripe rather than here.
+       */
+      defaultExpiryDays: 90,
+      /** Warn the member when they are down to this many. */
+      lowBalanceAt: 1,
     },
   },
 

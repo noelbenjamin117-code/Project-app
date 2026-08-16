@@ -122,3 +122,19 @@ export function formatRelative(instant: Date, now: Date = new Date()): string {
     }) ?? ''
   );
 }
+
+/**
+ * The Monday-to-Sunday week a class falls in, as gym-local dates.
+ *
+ * Weekly class limits are counted over this rather than a rolling seven days,
+ * because "you've used your three this week" is something a coach can explain
+ * at the desk without anybody getting out a calendar.
+ */
+export function localWeekBounds(date: LocalDate): { from: LocalDate; to: LocalDate } {
+  const dt = DateTime.fromISO(date, { zone: GYM_TZ });
+  const monday = dt.minus({ days: dt.weekday - 1 });
+  return {
+    from: monday.toFormat('yyyy-MM-dd'),
+    to: monday.plus({ days: 6 }).toFormat('yyyy-MM-dd'),
+  };
+}

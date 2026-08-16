@@ -187,9 +187,11 @@ Optional — the app runs fine without it, and membership features stay hidden
 until it's configured. When it is set up, Stripe is the source of truth: the
 app mirrors what Stripe says and never asks you to type a renewal date.
 
-**Members are never blocked from booking when their payment lapses.** That was
-a deliberate choice: you get a list to chase instead of a member turned away at
-the door. It's a one-line change if you ever want it stricter.
+**Booking is gated on membership; logging in never is.** A member whose
+payment fails keeps their account, keeps the classes they already booked, and
+gets three days' grace to fix their card before new bookings pause. You can
+also mark anybody active by hand — cash at the desk, a comped month — with a
+reason that's kept on the record.
 
 ## 1. Your own Stripe account
 
@@ -205,8 +207,58 @@ Stripe → **Product catalogue** → **Add product**. One product per tier, each
 with a **recurring** price (monthly or whatever you sell).
 
 The app reads your live prices straight from Stripe, so there's nothing to
-configure here and nothing to redeploy. Add a tier, change a price, archive an
-old one — the app follows.
+redeploy. Add a tier, change a price, archive an old one — the app follows.
+
+**One thing to set on each price.** A tier that only buys *some* classes needs
+to say which. On the price, open **Additional options → Metadata** and add:
+
+| Key | Value | Meaning |
+| --- | --- | --- |
+| `b42_plan` | `UNLIMITED` | Train whenever |
+| `b42_plan` | `TIER1` | 3 classes a week |
+| `b42_plan` | `TIER2` | 2 classes a week |
+| `b42_plan` | `HYROX_WF` | HYROX on Wednesday and Friday only |
+| `b42_plan` | `OFF_PEAK` | The 9:30s, plus Thursday 4:30pm |
+
+What each of those actually allows lives in `gym.config.ts` under
+`membership.plans` — change the weekly number or the times there, not in
+Stripe.
+
+If you forget the metadata, or type a value that isn't in the list, that
+member is treated as **unlimited**. That's deliberate: a missing tag is our
+mistake, and locking a paying member out of the gym is a worse outcome than
+not enforcing a limit.
+
+## 2b. Class passes (blocks of classes)
+
+Same place: **Add product**, but give it a **one-off** price rather than a
+recurring one. Then set the metadata:
+
+| Key | Value |
+| --- | --- |
+| `b42_pack_passes` | how many classes the block is worth, e.g. `10` |
+| `b42_pack_days` | how long it lasts, e.g. `90` (optional — defaults to 90) |
+
+Sell as many sizes as you like; they all appear on the member's Membership
+page. The rules, once bought:
+
+- A pass covers any class **except Sunday**, which is pay-as-you-go for
+  everyone.
+- Membership is always spent first, so nobody burns a bought pass on a class
+  their plan already covers.
+- Cancel in time and the pass comes back. Cancel late, or don't turn up, and
+  it's gone — the spot was held for them.
+- Waitlisting costs nothing; the pass is only spent when they get a spot.
+
+## 2c. The Sunday session
+
+Sunday HYROX is marked **pay-as-you-go** in the schedule, which means: anyone
+can book it, member or not; it doesn't touch a weekly limit; it never spends a
+pass; and the roster gains a **paid / not paid** tick so whoever runs the class
+can see who's settled up on the door.
+
+Any class can be made pay-as-you-go — **Schedule → Edit** on the class, then
+tick *Pay-as-you-go*.
 
 ## 3. Add the keys to Vercel
 

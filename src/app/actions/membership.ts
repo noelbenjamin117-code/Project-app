@@ -17,13 +17,13 @@ import type { ActionResult } from '@/app/actions/booking';
  * Both of these hand off to Stripe-hosted pages, so no card details ever
  * reach this app.
  */
-export async function startCheckoutAction(): Promise<ActionResult> {
+export async function startCheckoutAction(priceId: string): Promise<ActionResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, message: null, error: unauthorized().message };
 
   let url: string;
   try {
-    url = await createCheckoutSession(user);
+    url = await createCheckoutSession(user, priceId);
   } catch (error) {
     return { ok: false, message: null, error: toErrorResponse(error).body.error };
   }

@@ -12,6 +12,7 @@ import {
   undoCheckIn,
   cancelClassInstance,
   restoreClassInstance,
+  setBookingPaid,
 } from '@/lib/services/booking';
 
 export interface ActionResult {
@@ -170,5 +171,21 @@ export async function restoreClassAction(classInstanceId: string): Promise<Actio
     revalidatePath(`/coach/classes/${classInstanceId}`);
     revalidatePath('/coach');
     return ok('Class restored. Members will need to re-book.');
+  });
+}
+
+/**
+ * Tick the drop-in fee off on a pay-as-you-go class. A record of what the gym
+ * has collected — no money moves through the app.
+ */
+export async function setPaidAction(
+  bookingId: string,
+  paid: boolean,
+  classInstanceId: string,
+): Promise<ActionResult> {
+  return run(async (user) => {
+    await setBookingPaid(user, bookingId, paid);
+    revalidatePath(`/coach/classes/${classInstanceId}`);
+    return ok(paid ? 'Marked as paid.' : 'Marked as unpaid.');
   });
 }

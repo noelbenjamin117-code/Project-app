@@ -7,6 +7,7 @@ import {
   recordPaymentSuccess,
   syncSubscription,
 } from '@/lib/services/membership';
+import { handlePackCheckout } from '@/lib/services/passes';
 
 // Stripe's SDK needs Node, and the signature check needs the raw body — so no
 // edge runtime and no body parsing before we get to it.
@@ -82,6 +83,14 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
 
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
+
+      // A one-off payment is a class-pack purchase. Crediting it is keyed on
+      // this session id, so a redelivered event cannot hand out two packs.
+      if (session.mode === 'payment') {
+        await handlePackCheckout(session);
+        break;
+      }
+
       if (session.mode !== 'subscription' || !session.subscription) break;
 
       const subscriptionId =

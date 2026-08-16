@@ -108,12 +108,33 @@ async function main() {
   for (const [index, member] of members.entries()) {
     const status =
       index === 3 ? 'CANCELED' : index === 4 ? 'PAST_DUE' : ('ACTIVE' as const);
+    // Mostly unlimited, with one member on each of the restricted plans so
+    // every plan is visible in the demo gym. The seed writes bookings directly
+    // rather than through the booking path, so a capped member here may show
+    // more classes in a week than they could actually book.
+    const planKey =
+      index === 0 ? 'TIER1' : index === 1 ? 'TIER2' : index === 2 ? 'HYROX_WF' : index === 5 ? 'OFF_PEAK' : 'UNLIMITED';
     await prisma.membership.create({
       data: {
         userId: member.id,
         status,
+        planKey,
         currentPeriodEnd: new Date(Date.now() + between(3, 28) * 86_400_000),
         pastDueSince: status === 'PAST_DUE' ? new Date(Date.now() - 86_400_000) : null,
+      },
+    });
+  }
+
+  // A couple of members holding class passes, including one nearly out, so the
+  // low-balance prompt is visible without buying anything.
+  for (const [index, member] of members.slice(0, 3).entries()) {
+    await prisma.passPack.create({
+      data: {
+        memberId: member.id,
+        passesTotal: 10,
+        passesUsed: index === 0 ? 9 : between(0, 4),
+        label: '10 classes',
+        expiresAt: new Date(Date.now() + 90 * 86_400_000),
       },
     });
   }
@@ -122,6 +143,7 @@ async function main() {
       data: {
         userId: staff.id,
         status: 'ACTIVE',
+        planKey: 'UNLIMITED',
         currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
       },
     });
@@ -176,6 +198,7 @@ async function main() {
             templateId: template.id,
             name: template.name,
             notes: template.notes,
+            payg: template.payg,
             date,
             startsAt,
             endsAt,
@@ -350,7 +373,10 @@ async function main() {
   // it the moment you open the app and members have something to log against.
   const upcomingDates: string[] = [];
   for (let d = today; d <= today.plus({ days: 7 }); d = d.plus({ days: 1 })) {
-    if (d.weekday <= 5) upcomingDates.push(localDate(d));
+    // Every day the gym actually runs classes — which includes Sunday, and
+    // never Saturday. Skipping Sunday used to leave the seed with nothing
+    // programmed for today whenever it was run at the weekend.
+    if (d.weekday <= 5 || d.weekday === 7) upcomingDates.push(localDate(d));
   }
 
   for (let i = 0; i < upcomingDates.length; i++) {

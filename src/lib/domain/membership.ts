@@ -53,10 +53,9 @@ const DAY_MS = 86_400_000;
  * Order matters: an owner's manual override wins over whatever Stripe thinks,
  * because the owner has usually just been handed cash.
  *
- * NOTE: v1 sells one unlimited plan, so being active is the whole entitlement
- * question. Limited plans — N classes a week, off-peak only, HYROX-only — need
- * per-plan entitlement rules that deliberately do not exist yet. Until they
- * do, any active subscription can book anything.
+ * This answers "are they paid up", and nothing more. Which classes that buys
+ * them — a weekly cap, HYROX only, off-peak only — is a separate question,
+ * answered by resolveEntitlement in ./entitlement.ts against the plan key.
  */
 export function computeMembershipState(
   mirror: MembershipMirror | null,

@@ -15,6 +15,8 @@ export interface ClassCard {
   id: string;
   name: string;
   notes: string | null;
+  /** Outside every membership: anyone may book, and the gym collects for it. */
+  payg: boolean;
   date: LocalDate;
   startsAt: Date;
   endsAt: Date;
@@ -95,6 +97,7 @@ export async function getSchedule(
       id: instance.id,
       name: instance.name,
       notes: instance.notes,
+      payg: instance.payg,
       date: instance.date,
       startsAt: instance.startsAt,
       endsAt: instance.endsAt,
@@ -161,6 +164,8 @@ export interface RosterEntry {
   riskLevel: 'NONE' | 'NEAR' | 'AT_THRESHOLD' | 'SUSPENDED';
   /** Booked while paying, but has lapsed since. The booking still stands. */
   membershipLapsed: boolean;
+  /** PAYG classes only: when the drop-in fee was ticked off as collected. */
+  paidAt: Date | null;
 }
 
 export interface Roster {
@@ -174,6 +179,7 @@ export interface Roster {
     capacity: number;
     coachName: string | null;
     cancelledReason: string | null;
+    payg: boolean;
   };
   booked: RosterEntry[];
   waitlisted: RosterEntry[];
@@ -228,6 +234,7 @@ export async function getRoster(
       strikes,
       riskLevel: riskLevel(strikes),
       membershipLapsed: membershipStates.get(booking.memberId)?.canBook === false,
+      paidAt: booking.paidAt,
     };
   };
 
@@ -244,6 +251,7 @@ export async function getRoster(
       capacity: instance.capacity,
       coachName: instance.coach?.name ?? null,
       cancelledReason: instance.cancelledReason,
+      payg: instance.payg,
     },
     booked: entries.filter((e) => e.status === 'BOOKED'),
     waitlisted: entries.filter((e) => e.status === 'WAITLISTED'),

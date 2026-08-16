@@ -2,9 +2,18 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
 import { stripeConfigured } from '@/lib/stripe';
-import { getMembershipState, getPlan } from '@/lib/services/membership';
+import {
+  getMembershipState,
+  listPlans,
+  listPackOffers,
+  formatMoney,
+} from '@/lib/services/membership';
+import { getBalance } from '@/lib/services/passes';
+import { getAllowance } from '@/lib/services/entitlement';
+import { getPlanRules } from '@/lib/domain/entitlement';
+import { prisma } from '@/lib/db';
 import { formatDayDate, formatDateTime } from '@/lib/time';
-import { MembershipActions } from '@/components/membership-actions';
+import { MembershipActions, BuyPassesButton } from '@/components/membership-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,8 +30,16 @@ export default async function MembershipPage({
   if (!user) redirect('/login');
 
   const { checkout } = await searchParams;
-  const state = await getMembershipState(user.id);
-  const plan = getPlan();
+  const [state, membershipRow, balance, allowance] = await Promise.all([
+    getMembershipState(user.id),
+    prisma.membership.findUnique({ where: { userId: user.id } }),
+    getBalance(user.id),
+    getAllowance(user.id),
+  ]);
+  const plans = stripeConfigured() ? await listPlans() : [];
+  const packs = stripeConfigured() ? await listPackOffers() : [];
+  const rules = getPlanRules(membershipRow?.planKey);
+  const plan = rules ? { name: rules.name } : null;
 
   return (
     <div className="space-y-6">
@@ -68,6 +85,15 @@ export default async function MembershipPage({
             <span className="pill bg-ok/15 text-ok">Active</span>
           </div>
 
+          {allowance.remaining !== null && (
+            <p className="mt-3 text-sm text-white/60">
+              <span className="font-semibold text-white">
+                {allowance.remaining} of {allowance.weeklyLimit}
+              </span>{' '}
+              classes left this week. Your week runs Monday to Sunday.
+            </p>
+          )}
+
           {state.currentPeriodEnd && (
             <p className="mt-3 text-sm text-white/60">
               Renews on{' '}
@@ -108,21 +134,76 @@ export default async function MembershipPage({
                 : 'You need a membership to book classes.'}
           </p>
 
-          {!stripeConfigured() || !plan ? (
+          {!stripeConfigured() || plans.length === 0 ? (
             <p className="mt-4 text-sm text-white/50">
               Memberships aren't available online yet — please speak to the gym.
             </p>
           ) : (
-            <div className="mt-5 rounded-lg border border-edge bg-ink p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="text-lg font-bold">{plan.name}</p>
-                <p className="font-semibold text-brand">{plan.priceLabel}</p>
-              </div>
-              <p className="mt-1 text-sm text-white/60">{plan.description}</p>
+            <div className="mt-5 space-y-3">
+              {plans.map((option) => (
+                <div key={option.priceId} className="rounded-lg border border-edge bg-ink p-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-lg font-bold">{option.name}</p>
+                    <p className="font-semibold text-brand">
+                      {formatMoney(option.amount, option.currency) || option.priceLabel}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-sm text-white/60">{option.description}</p>
+                  <MembershipActions mode="subscribe" priceId={option.priceId} />
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-              <MembershipActions
-                mode={state.status === 'PAST_DUE' ? 'manage' : 'subscribe'}
-              />
+      {(balance.remaining > 0 || packs.length > 0) && (
+        <section className="card p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="font-semibold">Class passes</h3>
+            <p className="text-2xl font-bold">
+              {balance.remaining}
+              <span className="ml-1 text-sm font-normal text-white/40">left</span>
+            </p>
+          </div>
+
+          {balance.remaining > 0 && balance.nextExpiry && (
+            <p className="mt-1 text-sm text-white/50">
+              {balance.low ? (
+                <span className="text-warn">
+                  Last one — top up to keep booking.
+                </span>
+              ) : (
+                <>Use them by {formatDayDate(balance.nextExpiry)}</>
+              )}
+            </p>
+          )}
+
+          <p className="mt-2 text-sm text-white/50">
+            Passes cover any class except the Sunday session, which is always pay-as-you-go.
+          </p>
+
+          {packs.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {packs.map((pack) => (
+                <div
+                  key={pack.priceId}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-ink p-3"
+                >
+                  <div>
+                    <p className="font-semibold">{pack.label}</p>
+                    <p className="text-xs text-white/40">
+                      {pack.passes} classes · lasts {pack.expiryDays} days
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-semibold text-brand">
+                      {formatMoney(pack.amount, pack.currency)}
+                    </p>
+                    <BuyPassesButton priceId={pack.priceId} />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>

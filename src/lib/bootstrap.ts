@@ -18,6 +18,7 @@ export interface TemplateShape {
   cancelAbsoluteTimeLocal: string | null;
   cancelRelativeHours: number | null;
   notes: string | null;
+  payg: boolean;
 }
 
 /** Every class runs 42 minutes — the 42 in B42. */
@@ -42,6 +43,8 @@ const TIMETABLE: Array<{
   /** Overrides the usual time-of-day cancellation rule for this class type. */
   cancelPolicy?: 'NONE';
   notes?: string;
+  /** Outside every membership — anyone may book and pays for the class itself. */
+  payg?: boolean;
 }> = [
   {
     dayOfWeek: 1,
@@ -79,7 +82,8 @@ const TIMETABLE: Array<{
     name: 'HYROX',
     times: ['09:30'],
     capacity: 30,
-    notes: 'Pay-as-you-go — we’ll send you a payment link once you book.',
+    payg: true,
+    notes: 'Pay-as-you-go £5 — open to everyone. We’ll send you a payment link when you book.',
   },
 ];
 
@@ -122,6 +126,7 @@ export const DEFAULT_TEMPLATE_SHAPES: TemplateShape[] = TIMETABLE.flatMap((entry
     durationMinutes: CLASS_DURATION_MINUTES,
     capacity: entry.capacity,
     notes: entry.notes ?? null,
+    payg: entry.payg ?? false,
     ...(entry.cancelPolicy === 'NONE' ? FREE_TO_CANCEL : ruleForTime(startTimeLocal)),
   })),
 );
@@ -295,6 +300,7 @@ export async function createDefaultTemplates(
           cancelAbsoluteTimeLocal: shape.cancelAbsoluteTimeLocal,
           cancelRelativeHours: shape.cancelRelativeHours,
           notes: shape.notes,
+          payg: shape.payg,
           activeFrom,
         },
       }),

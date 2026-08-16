@@ -21,6 +21,7 @@ export interface TemplateView {
   cancelAbsoluteTimeLocal: string | null;
   cancelRelativeHours: number | null;
   notes: string | null;
+  payg: boolean;
   policyLabel: string;
 }
 
@@ -35,6 +36,7 @@ type Draft = {
   cancelAbsoluteTimeLocal: string;
   cancelRelativeHours: number;
   notes: string;
+  payg: boolean;
 };
 
 const BLANK: Draft = {
@@ -48,6 +50,7 @@ const BLANK: Draft = {
   cancelAbsoluteTimeLocal: '21:00',
   cancelRelativeHours: 2,
   notes: '',
+  payg: false,
 };
 
 export function TemplateEditor({
@@ -86,6 +89,7 @@ export function TemplateEditor({
     cancelAbsoluteTimeLocal: d.cancelAbsoluteTimeLocal,
     cancelRelativeHours: d.cancelRelativeHours,
     notes: d.notes.trim() || null,
+    payg: d.payg,
   });
 
   const startEdit = (template: TemplateView) => {
@@ -100,6 +104,7 @@ export function TemplateEditor({
       cancelAbsoluteTimeLocal: template.cancelAbsoluteTimeLocal ?? '21:00',
       cancelRelativeHours: template.cancelRelativeHours ?? 2,
       notes: template.notes ?? '',
+      payg: template.payg,
     });
     setEditingId(template.id);
     setCreating(false);
@@ -170,6 +175,11 @@ export function TemplateEditor({
                       {template.capacity} spots · {template.durationMinutes} min ·{' '}
                       {template.policyLabel}
                     </p>
+                    {template.payg && (
+                      <span className="pill mt-1 inline-block bg-white/10 text-white/60">
+                        Pay-as-you-go
+                      </span>
+                    )}
                     {template.notes && (
                       <p className="mt-0.5 text-sm text-warn">{template.notes}</p>
                     )}
@@ -373,6 +383,23 @@ function DraftForm({
         <p className="mt-1 text-xs text-white/40">
           Shown on the class before anyone books it.
         </p>
+
+        <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={draft.payg}
+            onChange={(e) => set('payg', e.target.checked)}
+          />
+          <span>
+            Pay-as-you-go
+            <span className="block text-xs text-white/40">
+              No membership covers it. Anyone can book — including people who don’t
+              train here — and the roster gains a paid/unpaid tick. It doesn’t count
+              toward a capped plan’s weekly classes and never spends a class pass.
+            </span>
+          </span>
+        </label>
       </div>
 
       {extra}

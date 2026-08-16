@@ -4,6 +4,7 @@ import { getSessionUser } from '@/lib/auth';
 import { getSchedule, type ClassCard } from '@/lib/services/classes';
 import { ensureHorizon } from '@/lib/services/schedule';
 import { getStrikeState } from '@/lib/services/strikes';
+import { getAllowance } from '@/lib/services/entitlement';
 import { GYM_TZ, formatDeadline, formatRelative, formatTime, todayLocal } from '@/lib/time';
 import { previewStrike } from '@/lib/domain/strikes';
 import { prisma } from '@/lib/db';
@@ -23,6 +24,7 @@ export default async function SchedulePage() {
   const today = todayLocal(now);
   const schedule = await getSchedule(user.id, { from: today, days: 14 }, now);
   const strikeState = await getStrikeState(user.id, now);
+  const allowance = await getAllowance(user.id, now);
 
   const lateCancelPreview = previewStrike(strikeState, 'LATE_CANCEL');
 
@@ -48,6 +50,24 @@ export default async function SchedulePage() {
       />
 
       <h2 className="text-2xl font-bold">Book a class</h2>
+
+      {/* Said before they run out, not at the moment they're refused. */}
+      {(allowance.remaining !== null || allowance.passes > 0) && (
+        <p className="rounded-lg bg-white/5 px-4 py-3 text-sm text-white/60">
+          {allowance.remaining !== null && (
+            <span className={allowance.remaining === 0 ? 'text-warn' : undefined}>
+              {allowance.remaining === 0
+                ? `You've used all ${allowance.weeklyLimit} of this week's classes on ${allowance.planName}. Your week starts again on Monday.`
+                : `${allowance.remaining} of ${allowance.weeklyLimit} classes left this week on ${allowance.planName}.`}
+            </span>
+          )}
+          {allowance.passes > 0 && (
+            <span className={allowance.remaining !== null ? 'ml-1' : undefined}>
+              {allowance.passes} class {allowance.passes === 1 ? 'pass' : 'passes'} in hand.
+            </span>
+          )}
+        </p>
+      )}
 
       {days.length === 0 && (
         <p className="card p-6 text-center text-white/50">

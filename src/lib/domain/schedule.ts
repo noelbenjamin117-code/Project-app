@@ -18,12 +18,15 @@ export interface TemplateSpec {
   activeUntil?: LocalDate | null;
   archived?: boolean;
   notes?: string | null;
+  /** No membership covers this class; anyone may book and pays separately. */
+  payg?: boolean;
 }
 
 export interface InstanceSpec {
   templateId: string;
   name: string;
   notes: string | null;
+  payg: boolean;
   date: LocalDate;
   startsAt: Date;
   endsAt: Date;
@@ -72,6 +75,7 @@ export function expandTemplates(
         templateId: template.id,
         name: template.name,
         notes: template.notes ?? null,
+        payg: template.payg ?? false,
         date,
         startsAt,
         endsAt,
