@@ -4,6 +4,8 @@ import { getSessionUser } from '@/lib/auth';
 import { assertCan, can } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { getStrikeStates } from '@/lib/services/strikes';
+import { getMembershipStates } from '@/lib/services/membership';
+import { stripeConfigured } from '@/lib/stripe';
 import { suggestPassword } from '@/lib/services/users';
 import { formatDayDate } from '@/lib/time';
 import { AddMemberPanel } from '@/components/add-member-panel';
@@ -22,6 +24,7 @@ export default async function MembersPage() {
   });
 
   const states = await getStrikeStates(members.map((m) => m.id));
+  const memberships = await getMembershipStates(members.map((m) => m.id));
 
   // Anyone suspended or close to it floats to the top — that is what a coach
   // opens this page to find.
@@ -65,6 +68,39 @@ export default async function MembersPage() {
                     </p>
                     <p className="truncate text-sm text-white/40">{member.email}</p>
                   </div>
+
+                  {/* Membership sits next to strikes so the owner sees both
+                      reasons a member might need chasing in one place. */}
+                  {stripeConfigured() &&
+                    (() => {
+                      const membership = memberships.get(member.id)!;
+                      return (
+                        <span className="shrink-0 text-right">
+                          <span
+                            className={`pill ${
+                              membership.state === 'GRACE'
+                                ? 'bg-warn/15 text-warn'
+                                : membership.canBook
+                                  ? 'bg-ok/15 text-ok'
+                                  : 'bg-bad/15 text-bad'
+                            }`}
+                          >
+                            {membership.state === 'GRACE'
+                              ? 'Payment failed'
+                              : membership.source === 'OVERRIDE'
+                                ? 'Active (by hand)'
+                                : membership.canBook
+                                  ? 'Active'
+                                  : 'Not a member'}
+                          </span>
+                          {membership.currentPeriodEnd && membership.canBook && (
+                            <span className="mt-0.5 block text-xs text-white/30">
+                              next {formatDayDate(membership.currentPeriodEnd)}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })()}
 
                   {state.suspended && state.suspendedUntil ? (
                     <span className="pill bg-bad/15 text-bad">

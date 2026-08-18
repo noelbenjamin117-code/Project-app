@@ -10,59 +10,126 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 export interface TemplateShape {
   name: string;
+  dayOfWeek: number;
   startTimeLocal: string;
+  durationMinutes: number;
   capacity: number;
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal: string | null;
   cancelRelativeHours: number | null;
+  notes: string | null;
+  payg: boolean;
 }
 
-/** The schedule this gym actually runs. Editable per template in the coach UI. */
-export const DEFAULT_TEMPLATE_SHAPES: TemplateShape[] = [
+/** Every class runs 42 minutes — the 42 in B42. */
+export const CLASS_DURATION_MINUTES = 42;
+
+/**
+ * B42's timetable, by day. Sunday is day 7; there are no Saturday classes.
+ *
+ * Capacity belongs to the class type rather than the time of day, because the
+ * format decides how many people fit: BUILD42 is a lifting session on twenty
+ * racks, BLITZ42 packs thirty in.
+ *
+ * This is only the starting point — every one of these becomes an editable
+ * class template, so times, capacities, coaches, durations and rules can all
+ * be changed in the Schedule page without touching code.
+ */
+const TIMETABLE: Array<{
+  dayOfWeek: number;
+  name: string;
+  times: string[];
+  capacity: number;
+  /** Overrides the usual time-of-day cancellation rule for this class type. */
+  cancelPolicy?: 'NONE';
+  notes?: string;
+  /** Outside every membership — anyone may book and pays for the class itself. */
+  payg?: boolean;
+}> = [
   {
-    name: '6:00am WOD',
-    startTimeLocal: '06:00',
-    capacity: 16,
-    cancelPolicyType: 'ABSOLUTE',
-    cancelAbsoluteTimeLocal: '21:00',
-    cancelRelativeHours: null,
+    dayOfWeek: 1,
+    name: 'BLITZ42',
+    times: ['06:00', '07:00', '09:30', '17:30', '18:30'],
+    capacity: 30,
   },
   {
-    name: '7:00am WOD',
-    startTimeLocal: '07:00',
-    capacity: 16,
-    cancelPolicyType: 'ABSOLUTE',
-    cancelAbsoluteTimeLocal: '21:00',
-    cancelRelativeHours: null,
+    dayOfWeek: 2,
+    name: 'ATHELERIX42',
+    times: ['06:00', '07:00', '09:30', '17:30', '18:30'],
+    capacity: 24,
   },
   {
-    name: '9:30am WOD',
-    startTimeLocal: '09:30',
-    capacity: 12,
-    cancelPolicyType: 'NONE',
-    cancelAbsoluteTimeLocal: null,
-    cancelRelativeHours: null,
+    dayOfWeek: 2,
+    name: 'Run Club',
+    times: ['18:30'],
+    capacity: 30,
+    notes: 'Every pace welcome — free to book for all members.',
   },
+  { dayOfWeek: 3, name: 'HYROX', times: ['06:00', '07:00', '18:30'], capacity: 24 },
+  { dayOfWeek: 3, name: 'CALIBRATE42', times: ['17:30'], capacity: 30 },
   {
-    name: '5:30pm WOD',
-    startTimeLocal: '17:30',
+    dayOfWeek: 4,
+    name: 'BUILD42',
+    times: ['06:00', '07:00', '09:30', '16:30', '17:30'],
     capacity: 20,
-    cancelPolicyType: 'RELATIVE',
-    cancelAbsoluteTimeLocal: null,
-    cancelRelativeHours: 2,
+    // BUILD42 is free to cancel whatever the hour, so it opts out of the
+    // 9pm-the-night-before rule that the other early classes carry.
+    cancelPolicy: 'NONE',
   },
+  { dayOfWeek: 5, name: 'HYROX', times: ['06:00', '07:00', '09:30', '17:30'], capacity: 30 },
   {
-    name: '6:30pm WOD',
-    startTimeLocal: '18:30',
-    capacity: 20,
-    cancelPolicyType: 'RELATIVE',
-    cancelAbsoluteTimeLocal: null,
-    cancelRelativeHours: 2,
+    dayOfWeek: 7,
+    name: 'HYROX',
+    times: ['09:30'],
+    capacity: 30,
+    payg: true,
+    notes: 'Pay-as-you-go £5 — open to everyone. We’ll send you a payment link when you book.',
   },
 ];
 
-/** Monday–Friday. Add or remove days in the coach UI once you're running. */
-export const DEFAULT_TEMPLATE_DAYS = [1, 2, 3, 4, 5];
+/**
+ * Cancellation rules are set by class time rather than by class type, which is
+ * how the gym actually runs them: early mornings need committing to the night
+ * before, the mid-morning class is come-as-you-are, and afternoons and
+ * evenings give two hours' notice.
+ */
+function ruleForTime(startTimeLocal: string): {
+  cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
+  cancelAbsoluteTimeLocal: string | null;
+  cancelRelativeHours: number | null;
+} {
+  if (startTimeLocal === '06:00' || startTimeLocal === '07:00') {
+    return {
+      cancelPolicyType: 'ABSOLUTE',
+      cancelAbsoluteTimeLocal: '21:00',
+      cancelRelativeHours: null,
+    };
+  }
+  if (startTimeLocal === '09:30') {
+    return { cancelPolicyType: 'NONE', cancelAbsoluteTimeLocal: null, cancelRelativeHours: null };
+  }
+  // Everything from lunchtime onwards, including the 4:30pm on Thursdays.
+  return { cancelPolicyType: 'RELATIVE', cancelAbsoluteTimeLocal: null, cancelRelativeHours: 2 };
+}
+
+const FREE_TO_CANCEL = {
+  cancelPolicyType: 'NONE' as const,
+  cancelAbsoluteTimeLocal: null,
+  cancelRelativeHours: null,
+};
+
+export const DEFAULT_TEMPLATE_SHAPES: TemplateShape[] = TIMETABLE.flatMap((entry) =>
+  entry.times.map((startTimeLocal) => ({
+    name: entry.name,
+    dayOfWeek: entry.dayOfWeek,
+    startTimeLocal,
+    durationMinutes: CLASS_DURATION_MINUTES,
+    capacity: entry.capacity,
+    notes: entry.notes ?? null,
+    payg: entry.payg ?? false,
+    ...(entry.cancelPolicy === 'NONE' ? FREE_TO_CANCEL : ruleForTime(startTimeLocal)),
+  })),
+);
 
 export const MOVEMENTS: Array<[string, boolean]> = [
   ['Back Squat', true],
@@ -216,30 +283,28 @@ export async function createBenchmarkWods(db: Db, createdById: string) {
 export async function createDefaultTemplates(
   db: Db,
   activeFrom: string,
-  coachIdForDay?: (index: number) => string | null,
+  coachForIndex?: (index: number) => string | null,
 ) {
   const created = [];
-  let index = 0;
-  for (const dayOfWeek of DEFAULT_TEMPLATE_DAYS) {
-    for (const shape of DEFAULT_TEMPLATE_SHAPES) {
-      created.push(
-        await db.classTemplate.create({
-          data: {
-            name: shape.name,
-            dayOfWeek,
-            startTimeLocal: shape.startTimeLocal,
-            durationMinutes: 60,
-            capacity: shape.capacity,
-            defaultCoachId: coachIdForDay?.(index) ?? null,
-            cancelPolicyType: shape.cancelPolicyType,
-            cancelAbsoluteTimeLocal: shape.cancelAbsoluteTimeLocal,
-            cancelRelativeHours: shape.cancelRelativeHours,
-            activeFrom,
-          },
-        }),
-      );
-      index++;
-    }
+  for (const [index, shape] of DEFAULT_TEMPLATE_SHAPES.entries()) {
+    created.push(
+      await db.classTemplate.create({
+        data: {
+          name: shape.name,
+          dayOfWeek: shape.dayOfWeek,
+          startTimeLocal: shape.startTimeLocal,
+          durationMinutes: shape.durationMinutes,
+          capacity: shape.capacity,
+          defaultCoachId: coachForIndex?.(index) ?? null,
+          cancelPolicyType: shape.cancelPolicyType,
+          cancelAbsoluteTimeLocal: shape.cancelAbsoluteTimeLocal,
+          cancelRelativeHours: shape.cancelRelativeHours,
+          notes: shape.notes,
+          payg: shape.payg,
+          activeFrom,
+        },
+      }),
+    );
   }
   return created;
 }

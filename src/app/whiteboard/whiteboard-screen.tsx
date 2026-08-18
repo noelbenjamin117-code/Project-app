@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { gymConfig } from '~/gym.config';
 import type { WhiteboardPayload } from '@/app/api/whiteboard/route';
+import { Wordmark } from '@/components/wordmark';
 
 const POLL_MS = gymConfig.whiteboard.pollSeconds * 1000;
 const HARD_RELOAD_MS = gymConfig.whiteboard.hardReloadHours * 3600 * 1000;
@@ -85,9 +86,11 @@ export function WhiteboardScreen() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-black text-white">
+    <div className="flex h-dvh flex-col overflow-hidden bg-ink text-white">
       <header className="flex shrink-0 items-baseline justify-between border-b-4 border-brand px-10 py-5">
-        <h1 className="text-tv-lg font-black uppercase tracking-tight">{data.gymName}</h1>
+        <h1>
+          <Wordmark size="tv" />
+        </h1>
         <p className="text-tv font-bold text-white/50">
           {stale && <span className="mr-4 text-warn">reconnecting…</span>}
           {data.generatedAtLabel}

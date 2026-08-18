@@ -13,6 +13,12 @@ the boring option at that scale.
 Next.js (App Router) · TypeScript · Postgres · Prisma · Tailwind · Luxon.
 Deploys to Vercel with hosted Postgres.
 
+## Migrating from another system
+
+Moving B42's existing members across is planned in **[MIGRATION.md](./MIGRATION.md)** —
+bulk account creation, a one-link claim flow, and a dashboard for chasing
+whoever hasn't paid yet. Not built yet.
+
 ## Deploying without a terminal
 
 If you just want this running for your gym, follow **[DEPLOY.md](./DEPLOY.md)** —

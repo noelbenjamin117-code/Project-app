@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
 import { atLeast } from '@/lib/permissions';
 import { signOut } from '@/app/actions/auth';
 import { CoachNav } from '@/components/coach-nav';
+import { Wordmark } from '@/components/wordmark';
 
 /**
  * The coach/owner surface is desktop-first: it is used on the gym laptop to
@@ -24,9 +24,7 @@ export default async function CoachLayout({ children }: { children: React.ReactN
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
           <div className="flex items-baseline gap-6">
             <Link href="/coach" className="shrink-0">
-              <span className="text-xs font-semibold uppercase tracking-widest text-brand">
-                {gymConfig.shortName}
-              </span>
+              <Wordmark className="inline-block align-baseline" />
               <span className="ml-2 font-bold">Coach</span>
             </Link>
             <CoachNav />

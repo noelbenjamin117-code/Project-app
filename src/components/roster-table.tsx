@@ -7,6 +7,7 @@ import {
   coachUndoCheckInAction,
   markNoShowAction,
   unmarkNoShowAction,
+  setPaidAction,
 } from '@/app/actions/booking';
 
 export interface RosterRowView {
@@ -23,6 +24,9 @@ export interface RosterRowView {
   promotedLabel: string | null;
   riskLevel: 'NONE' | 'NEAR' | 'AT_THRESHOLD' | 'SUSPENDED';
   strikeSummary: string;
+  membershipLapsed: boolean;
+  /** PAYG classes only. */
+  paid: boolean;
 }
 
 const RISK_STYLE: Record<RosterRowView['riskLevel'], string | null> = {
@@ -47,6 +51,7 @@ export function RosterTable({
   classStarted,
   classCancelled,
   canForgive,
+  payg,
 }: {
   classInstanceId: string;
   booked: RosterRowView[];
@@ -55,6 +60,8 @@ export function RosterTable({
   classStarted: boolean;
   classCancelled: boolean;
   canForgive: boolean;
+  /** Drop-in class: the roster gains a paid/unpaid column. */
+  payg: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
@@ -77,6 +84,18 @@ export function RosterTable({
           }`}
         >
           {feedback.text}
+        </p>
+      )}
+
+      {payg && (
+        <p className="rounded-lg bg-white/5 px-4 py-3 text-sm text-white/60">
+          Pay-as-you-go class — anyone can book it, membership or not. Tick each
+          person off as you take the fee.{' '}
+          {booked.some((row) => !row.paid) && (
+            <span className="ml-1 font-semibold text-warn">
+              {booked.filter((row) => !row.paid).length} still to pay.
+            </span>
+          )}
         </p>
       )}
 
@@ -106,6 +125,22 @@ export function RosterTable({
                         {RISK_LABEL[row.riskLevel]} · {row.strikeSummary}
                       </span>
                     )}
+                    {/* Booked while paying, lapsed since. The booking stands;
+                        the coach just knows to have a word. */}
+                    {/* On a drop-in there is no membership to have lapsed —
+                        saying so would be noise beside "Not paid". */}
+                    {row.membershipLapsed && !payg && (
+                      <span className="pill bg-bad/15 text-bad">Membership lapsed</span>
+                    )}
+                    {payg && (
+                      <span
+                        className={`pill ${
+                          row.paid ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn'
+                        }`}
+                      >
+                        {row.paid ? 'Paid' : 'Not paid'}
+                      </span>
+                    )}
                     {row.source === 'WALK_IN' && (
                       <span className="pill bg-white/10 text-white/50">Walk-in</span>
                     )}
@@ -114,6 +149,18 @@ export function RosterTable({
                     )}
                   </div>
                 </div>
+
+                {payg && (
+                  <button
+                    // Secondary either way: checking somebody in is still the
+                    // main action on the roster.
+                    className="btn-secondary px-3 py-2 text-xs"
+                    disabled={pending}
+                    onClick={() => act(() => setPaidAction(row.bookingId, !row.paid, classInstanceId))}
+                  >
+                    {row.paid ? 'Undo paid' : 'Mark paid'}
+                  </button>
+                )}
 
                 {row.noShow ? (
                   <div className="flex items-center gap-2">

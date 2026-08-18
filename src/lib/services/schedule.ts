@@ -26,6 +26,8 @@ function toSpec(t: ClassTemplate): TemplateSpec {
     activeFrom: t.activeFrom,
     activeUntil: t.activeUntil,
     archived: t.archived,
+    notes: t.notes,
+    payg: t.payg,
   };
 }
 
@@ -54,6 +56,8 @@ export async function generateClassInstances(
         {
           templateId: spec.templateId,
           name: spec.name,
+          notes: spec.notes,
+          payg: spec.payg,
           date: spec.date,
           startsAt: spec.startsAt,
           endsAt: spec.endsAt,
@@ -93,6 +97,8 @@ export interface TemplateInput {
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal?: string | null;
   cancelRelativeHours?: number | null;
+  notes?: string | null;
+  payg?: boolean;
   activeFrom?: LocalDate;
 }
 
@@ -116,6 +122,8 @@ export async function createTemplate(
         input.cancelPolicyType === 'ABSOLUTE' ? input.cancelAbsoluteTimeLocal ?? null : null,
       cancelRelativeHours:
         input.cancelPolicyType === 'RELATIVE' ? input.cancelRelativeHours ?? null : null,
+      notes: input.notes?.trim() || null,
+      payg: input.payg ?? false,
       activeFrom: input.activeFrom ?? todayLocal(now),
     },
   });
@@ -165,6 +173,8 @@ export async function updateTemplate(
         policyType === 'RELATIVE'
           ? input.cancelRelativeHours ?? existing.cancelRelativeHours
           : null,
+      notes: input.notes === undefined ? undefined : input.notes?.trim() || null,
+      payg: input.payg ?? undefined,
     },
   });
 
@@ -202,6 +212,8 @@ async function applyTemplateToFutureInstances(
         cancelPolicyType: template.cancelPolicyType,
         cancelAbsoluteTimeLocal: template.cancelAbsoluteTimeLocal,
         cancelRelativeHours: template.cancelRelativeHours,
+        notes: template.notes,
+        payg: template.payg,
         cancelDeadlineAt: deadline,
       },
     });

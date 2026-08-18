@@ -35,6 +35,9 @@ model User {
   // books classes and logs scores exactly like a MEMBER.
   role         Role     @default(MEMBER)
   active       Boolean  @default(true)
+  /// What they were paying for in the old system, kept only so the gym knows
+  /// which plan to sell them during migration. Not used for anything else.
+  legacyPlan   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -48,8 +51,14 @@ model User {
   liftResults        LiftResult[]
   authoredWods       WodDefinition[]
   checkedInBookings  Booking[]           @relation("CheckedInBy")
+  markedPaidBookings Booking[]           @relation("MarkedPaid")
   cancelledClasses   ClassInstance[]     @relation("ClassCanceller")
   notifications      Notification[]
+  membership         Membership?
+  membershipOverrides MembershipOverride[] @relation("MembershipOverrideMember")
+  grantedOverrides    MembershipOverride[] @relation("MembershipOverrideActor")
+  claimTokens         ClaimToken[]
+  passPacks           PassPack[]
 
   @@index([role])
 }
@@ -82,6 +91,15 @@ model ClassTemplate {
   /// RELATIVE only: hours before class start.
   cancelRelativeHours     Int?
 
+  /// Shown to members before they book — e.g. a drop-in fee that is not
+  /// covered by membership. Payments happen outside the app, so this is how
+  /// anything of that sort gets communicated.
+  notes String?
+
+  /// Pay-as-you-go: no membership covers it, anyone may book it, and the gym
+  /// collects payment separately. The Sunday session is the one of these.
+  payg Boolean @default(false)
+
   /// Local dates (yyyy-MM-dd) bounding when this template generates classes.
   activeFrom  String
   activeUntil String?
@@ -106,6 +124,9 @@ model ClassInstance {
   template   ClassTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   name String
+  /// Snapshotted from the template, same as capacity and the cancellation rule.
+  notes String?
+  payg  Boolean @default(false)
   /// Local calendar date, "yyyy-MM-dd". Paired with templateId for idempotent
   /// generation, and used for "today" lookups without timezone gymnastics.
   date String
@@ -187,6 +208,18 @@ model Booking {
   updatedAt DateTime @updatedAt
 
   strikes StrikeEvent[]
+
+  /// Pay-as-you-go classes only: the coach ticks the drop-in fee off once it
+  /// is collected. Nothing here takes payment — it is a record of what the
+  /// gym has been paid, so the roster shows who still owes.
+  paidAt   DateTime?
+  paidById String?
+  paidBy   User?     @relation("MarkedPaid", fields: [paidById], references: [id], onDelete: SetNull)
+
+  /// Which pack paid for this booking, if a pass was spent. Cancelling in
+  /// time hands the pass back; cancelling late or not turning up does not.
+  passPackId String?
+  passPack   PassPack? @relation(fields: [passPackId], references: [id], onDelete: SetNull)
 
   // A partial unique index on (classInstanceId, memberId) WHERE status <>
   // 'CANCELLED' is added by migration — Prisma cannot express it. It stops a
@@ -417,6 +450,143 @@ model LiftResult {
   createdAt DateTime @default(now())
 
   @@index([memberId, movementId, reps])
+}
+
+// ---------------------------------------------------------------------------
+// Membership
+//
+// Stripe is the source of truth for who is paying. These rows are a local
+// mirror of it, kept current by webhooks, so that rendering a roster does not
+// mean calling Stripe two hundred times.
+// ---------------------------------------------------------------------------
+
+enum MembershipStatus {
+  /// Never subscribed.
+  NONE
+  ACTIVE
+  TRIALING
+  /// Payment failed; Stripe is retrying. Still a member as far as the gym is
+  /// concerned — this is the state a bounced direct debit lands in.
+  PAST_DUE
+  /// Subscribed but the payment never completed.
+  INCOMPLETE
+  /// Ended, either by the member or after retries were exhausted.
+  CANCELED
+  PAUSED
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+
+  /// Which plan they are on, from the price's `b42_plan` metadata. Needed
+  /// because plans differ in what they may book and how often.
+  planKey String?
+
+  /// Mirrored straight from Stripe. Eligibility is never read from here
+  /// directly — it is computed, so it cannot go stale.
+  status MembershipStatus @default(NONE)
+  /// Paid up to here; renewals move it forward on their own.
+  currentPeriodEnd DateTime?
+
+  /// When the subscription first went past due. Needed to work out whether the
+  /// grace period has run out, and not derivable from Stripe without an API
+  /// call on the booking path.
+  pastDueSince DateTime?
+
+  /// Stripe delivers events out of order. Anything created at or before this
+  /// is ignored, so a late-arriving stale event cannot undo a newer one.
+  lastStripeEventAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+/// An owner marking somebody active by hand — cash payment, staff comp, a
+/// family member. Rows are kept forever as the audit trail, and the newest
+/// unexpired one wins over whatever Stripe says.
+model MembershipOverride {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation("MembershipOverrideMember", fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// Active up to this instant.
+  activeUntil DateTime
+  reason      String
+  byUserId    String
+  by          User   @relation("MembershipOverrideActor", fields: [byUserId], references: [id], onDelete: Cascade)
+
+  /// Set when an owner ends an override early. Never deleted.
+  revokedAt   DateTime?
+  revokedById String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, activeUntil])
+}
+
+/// A block of class passes bought outright. Passes are consumed one per
+/// booking and the pack expires whole, so a member always knows where they
+/// stand without the app having to age individual passes.
+model PassPack {
+  id       String @id @default(cuid())
+  memberId String
+  member   User   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  passesTotal Int
+  /// Bought passes are counted here rather than by scanning bookings, so a
+  /// deleted booking can never quietly hand somebody a free class.
+  passesUsed  Int @default(0)
+
+  expiresAt   DateTime
+  purchasedAt DateTime @default(now())
+
+  /// Stripe's checkout session, kept so a repeated webhook cannot credit the
+  /// same purchase twice.
+  stripeSessionId String? @unique
+  /// How the gym describes it — "10 classes", say.
+  label           String?
+
+  bookings Booking[]
+
+  @@index([memberId, expiresAt])
+}
+
+/// A single-use link that lets an existing member claim the account created
+/// for them during migration. Signs them in once, then expires.
+model ClaimToken {
+  id     String @id @default(cuid())
+  /// The random value that appears in the URL.
+  token  String @unique
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  /// Bumped each time an invite is re-sent, so the dashboard can show it.
+  sentCount Int      @default(0)
+  lastSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([usedAt])
+}
+
+/// Webhooks arrive more than once and out of order. Recording the ids we have
+/// already handled keeps replays from double-applying anything.
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
 }
 
 // ---------------------------------------------------------------------------

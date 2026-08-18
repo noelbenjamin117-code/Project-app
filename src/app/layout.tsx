@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0b0d10',
+  themeColor: '#0d1418',
   width: 'device-width',
   initialScale: 1,
   // The member surface is a tool used on the gym floor; pinch-zooming it while

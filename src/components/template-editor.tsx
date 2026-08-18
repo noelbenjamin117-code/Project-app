@@ -20,6 +20,8 @@ export interface TemplateView {
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal: string | null;
   cancelRelativeHours: number | null;
+  notes: string | null;
+  payg: boolean;
   policyLabel: string;
 }
 
@@ -33,18 +35,22 @@ type Draft = {
   cancelPolicyType: 'ABSOLUTE' | 'RELATIVE' | 'NONE';
   cancelAbsoluteTimeLocal: string;
   cancelRelativeHours: number;
+  notes: string;
+  payg: boolean;
 };
 
 const BLANK: Draft = {
   name: '',
   dayOfWeek: 1,
   startTimeLocal: '06:00',
-  durationMinutes: 60,
-  capacity: 16,
+  durationMinutes: 42,
+  capacity: 30,
   defaultCoachId: '',
   cancelPolicyType: 'RELATIVE',
   cancelAbsoluteTimeLocal: '21:00',
   cancelRelativeHours: 2,
+  notes: '',
+  payg: false,
 };
 
 export function TemplateEditor({
@@ -82,6 +88,8 @@ export function TemplateEditor({
     cancelPolicyType: d.cancelPolicyType,
     cancelAbsoluteTimeLocal: d.cancelAbsoluteTimeLocal,
     cancelRelativeHours: d.cancelRelativeHours,
+    notes: d.notes.trim() || null,
+    payg: d.payg,
   });
 
   const startEdit = (template: TemplateView) => {
@@ -95,6 +103,8 @@ export function TemplateEditor({
       cancelPolicyType: template.cancelPolicyType,
       cancelAbsoluteTimeLocal: template.cancelAbsoluteTimeLocal ?? '21:00',
       cancelRelativeHours: template.cancelRelativeHours ?? 2,
+      notes: template.notes ?? '',
+      payg: template.payg,
     });
     setEditingId(template.id);
     setCreating(false);
@@ -136,7 +146,7 @@ export function TemplateEditor({
                     <label className="mt-3 flex items-start gap-3 rounded-lg border border-edge bg-ink p-3 text-sm">
                       <input
                         type="checkbox"
-                        className="mt-0.5 h-4 w-4 accent-[#f2542d]"
+                        className="mt-0.5 h-4 w-4 accent-brand"
                         checked={applyToFuture}
                         onChange={(e) => setApplyToFuture(e.target.checked)}
                       />
@@ -165,6 +175,14 @@ export function TemplateEditor({
                       {template.capacity} spots · {template.durationMinutes} min ·{' '}
                       {template.policyLabel}
                     </p>
+                    {template.payg && (
+                      <span className="pill mt-1 inline-block bg-white/10 text-white/60">
+                        Pay-as-you-go
+                      </span>
+                    )}
+                    {template.notes && (
+                      <p className="mt-0.5 text-sm text-warn">{template.notes}</p>
+                    )}
                   </div>
                   <button
                     className="btn-secondary px-3 py-2 text-xs"
@@ -352,6 +370,36 @@ function DraftForm({
             />
           </div>
         )}
+      </div>
+
+      <div className="border-t border-edge pt-4">
+        <label className="label">Note for members (optional)</label>
+        <input
+          className="input"
+          placeholder="e.g. Drop-in £5 — not included in membership"
+          value={draft.notes}
+          onChange={(e) => set('notes', e.target.value)}
+        />
+        <p className="mt-1 text-xs text-white/40">
+          Shown on the class before anyone books it.
+        </p>
+
+        <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={draft.payg}
+            onChange={(e) => set('payg', e.target.checked)}
+          />
+          <span>
+            Pay-as-you-go
+            <span className="block text-xs text-white/40">
+              No membership covers it. Anyone can book — including people who don’t
+              train here — and the roster gains a paid/unpaid tick. It doesn’t count
+              toward a capped plan’s weekly classes and never spends a class pass.
+            </span>
+          </span>
+        </label>
       </div>
 
       {extra}

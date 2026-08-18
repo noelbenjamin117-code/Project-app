@@ -132,7 +132,7 @@ export function LogScoreForm({
             <label className="flex items-center gap-3 text-sm text-white/70">
               <input
                 type="checkbox"
-                className="h-5 w-5 accent-[#f2542d]"
+                className="h-5 w-5 accent-brand"
                 checked={cappedOut}
                 onChange={(e) => setCappedOut(e.target.checked)}
               />

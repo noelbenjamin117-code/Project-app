@@ -6,6 +6,9 @@ import { prisma } from '@/lib/db';
 import { notFound } from '@/lib/errors';
 import { getStrikeState } from '@/lib/services/strikes';
 import { suggestPassword } from '@/lib/services/users';
+import { getMembershipState, listOverrides } from '@/lib/services/membership';
+import { stripeConfigured } from '@/lib/stripe';
+import { MemberMembershipPanel } from '@/components/member-membership-panel';
 import { formatDateTime, formatDayDate } from '@/lib/time';
 import { StrikeAdmin, type StrikeRowView } from '@/components/strike-admin';
 import { MemberAccountPanel } from '@/components/member-account-panel';
@@ -71,6 +74,10 @@ export default async function MemberDetailPage({
     where: { memberId: member.id, checkedInAt: { not: null } },
   });
 
+  const membershipState = await getMembershipState(member.id, now);
+  const membershipRow = await prisma.membership.findUnique({ where: { userId: member.id } });
+  const overrideRows = stripeConfigured() ? await listOverrides(user, member.id) : [];
+
   return (
     <div className="space-y-6">
       <div>
@@ -83,6 +90,49 @@ export default async function MemberDetailPage({
           {!member.active && <span className="pill ml-2 bg-bad/15 text-bad">Deactivated</span>}
         </p>
       </div>
+
+      {stripeConfigured() && (
+        <MemberMembershipPanel
+          userId={member.id}
+          canManage={can(user, 'manageUsers')}
+          membership={{
+            label:
+              membershipState.state === 'GRACE'
+                ? 'Payment failed'
+                : membershipState.source === 'OVERRIDE'
+                  ? 'Active — set by hand'
+                  : membershipState.canBook
+                    ? 'Active'
+                    : 'Not a member',
+            tone:
+              membershipState.state === 'GRACE'
+                ? 'warn'
+                : membershipState.canBook
+                  ? 'ok'
+                  : 'bad',
+            canBook: membershipState.canBook,
+            nextBillingLabel: membershipState.currentPeriodEnd
+              ? formatDayDate(membershipState.currentPeriodEnd)
+              : null,
+            graceEndsLabel: membershipState.graceEndsAt
+              ? formatDateTime(membershipState.graceEndsAt)
+              : null,
+            overrideUntilLabel: membershipState.overrideUntil
+              ? formatDayDate(membershipState.overrideUntil)
+              : null,
+            overrideReason: membershipState.overrideReason,
+            hasStripeCustomer: Boolean(membershipRow?.stripeCustomerId),
+          }}
+          overrides={overrideRows.map((o) => ({
+            id: o.id,
+            activeUntilLabel: formatDayDate(o.activeUntil),
+            reason: o.reason,
+            byName: o.by.name,
+            createdLabel: formatDayDate(o.createdAt),
+            revoked: o.revokedAt != null,
+          }))}
+        />
+      )}
 
       {can(user, 'manageUsers') && (
         <MemberAccountPanel

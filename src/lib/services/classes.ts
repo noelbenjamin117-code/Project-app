@@ -8,11 +8,15 @@ import { notFound } from '@/lib/errors';
 import { addLocalDays, localDateRange, todayLocal, type LocalDate } from '@/lib/time';
 import { effectiveCancelDeadline, type DeadlineReason } from '@/lib/domain/cancellation';
 import { getStrikeStates } from '@/lib/services/strikes';
+import { getMembershipStates } from '@/lib/services/membership';
 import type { StrikeState } from '@/lib/domain/strikes';
 
 export interface ClassCard {
   id: string;
   name: string;
+  notes: string | null;
+  /** Outside every membership: anyone may book, and the gym collects for it. */
+  payg: boolean;
   date: LocalDate;
   startsAt: Date;
   endsAt: Date;
@@ -92,6 +96,8 @@ export async function getSchedule(
     const card: ClassCard = {
       id: instance.id,
       name: instance.name,
+      notes: instance.notes,
+      payg: instance.payg,
       date: instance.date,
       startsAt: instance.startsAt,
       endsAt: instance.endsAt,
@@ -156,6 +162,10 @@ export interface RosterEntry {
   strikes: StrikeState;
   /** Shown next to the name so a coach knows before they mark a no-show. */
   riskLevel: 'NONE' | 'NEAR' | 'AT_THRESHOLD' | 'SUSPENDED';
+  /** Booked while paying, but has lapsed since. The booking still stands. */
+  membershipLapsed: boolean;
+  /** PAYG classes only: when the drop-in fee was ticked off as collected. */
+  paidAt: Date | null;
 }
 
 export interface Roster {
@@ -169,6 +179,7 @@ export interface Roster {
     capacity: number;
     coachName: string | null;
     cancelledReason: string | null;
+    payg: boolean;
   };
   booked: RosterEntry[];
   waitlisted: RosterEntry[];
@@ -199,10 +210,11 @@ export async function getRoster(
   });
   if (!instance) throw notFound('That class no longer exists.');
 
-  const strikeStates = await getStrikeStates(
-    instance.bookings.map((b) => b.memberId),
-    now,
-  );
+  const memberIds = instance.bookings.map((b) => b.memberId);
+  const [strikeStates, membershipStates] = await Promise.all([
+    getStrikeStates(memberIds, now),
+    getMembershipStates(memberIds, now),
+  ]);
 
   let waitlistPosition = 0;
   const toEntry = (booking: (typeof instance.bookings)[number]): RosterEntry => {
@@ -221,6 +233,8 @@ export async function getRoster(
       promotedAt: booking.promotedAt,
       strikes,
       riskLevel: riskLevel(strikes),
+      membershipLapsed: membershipStates.get(booking.memberId)?.canBook === false,
+      paidAt: booking.paidAt,
     };
   };
 
@@ -237,6 +251,7 @@ export async function getRoster(
       capacity: instance.capacity,
       coachName: instance.coach?.name ?? null,
       cancelledReason: instance.cancelledReason,
+      payg: instance.payg,
     },
     booked: entries.filter((e) => e.status === 'BOOKED'),
     waitlisted: entries.filter((e) => e.status === 'WAITLISTED'),

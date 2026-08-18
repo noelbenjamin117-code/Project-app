@@ -7,6 +7,10 @@ import { conflict, notFound } from '@/lib/errors';
 import { formatDeadline, formatDateTime } from '@/lib/time';
 import { evaluateCancellation, type CancellationOutcome } from '@/lib/domain/cancellation';
 import { getStrikeState, recordStrike, removeStrike } from '@/lib/services/strikes';
+import { getMembershipState } from '@/lib/services/membership';
+import { getPacks, refundPass, spendPass, toFacts } from '@/lib/services/passes';
+import { resolveEntitlement, explainDenial, type ClassFacts } from '@/lib/domain/entitlement';
+import { localWeekBounds, toLocalTime, localWeekday } from '@/lib/time';
 import type { StrikeState } from '@/lib/domain/strikes';
 
 type Tx = Prisma.TransactionClient;
@@ -50,8 +54,9 @@ export async function bookClass(
   const bookingForSomeoneElse = memberId !== actor.id;
   if (bookingForSomeoneElse) assertCan(actor, 'markAttendance');
 
-  // A suspended member cannot book — but a coach putting someone in by hand is
-  // a deliberate override, so it is only checked for self-service bookings.
+  // Strikes are checked before the class is even looked at: being suspended
+  // is about the member, not about which class they picked. Coaches adding
+  // someone by hand bypass both this and the entitlement check below.
   if (!bookingForSomeoneElse) {
     const state = await getStrikeState(memberId, now);
     if (state.suspended && state.suspendedUntil) {
@@ -64,6 +69,17 @@ export async function bookClass(
 
   return prisma.$transaction(async (tx) => {
     const instance = await lockClass(tx, input.classInstanceId);
+
+    // Entitlement is resolved inside the lock, so two bookings cannot spend
+    // the same last pass or slip past the same weekly limit.
+    let passPackId: string | null = null;
+    if (!bookingForSomeoneElse) {
+      const entitlement = await resolveFor(tx, memberId, instance, now);
+      if (!entitlement.allowed) {
+        throw conflict(explainDenial(entitlement, classFacts(instance)), 'NOT_ENTITLED');
+      }
+      passPackId = entitlement.passPackId;
+    }
 
     if (instance.status === 'CANCELLED') {
       throw conflict('That class has been cancelled.', 'CLASS_CANCELLED');
@@ -97,8 +113,13 @@ export async function bookClass(
         source: input.source ?? (bookingForSomeoneElse ? 'COACH' : 'SELF'),
         bookedAt: now,
         waitlistedAt: full ? now : null,
+        // A waitlisted booking does not spend a pass — nothing is owed until
+        // they actually get a spot.
+        passPackId: full ? null : passPackId,
       },
     });
+
+    if (!full && passPackId) await spendPass(tx, passPackId);
 
     const waitlistPosition = full
       ? await tx.booking.count({
@@ -164,6 +185,13 @@ export async function cancelBooking(
         type: 'LATE_CANCEL',
         occurredAt: now,
       });
+    }
+
+    // Cancel in time and the pass comes back. Cancel late and it is spent —
+    // the class was held for them and nobody else could take it.
+    if (booking.passPackId && !outcome.isLate) {
+      await refundPass(tx, booking.passPackId);
+      await tx.booking.update({ where: { id: booking.id }, data: { passPackId: null } });
     }
 
     // Cancelling late still frees the spot and still promotes the waitlist —
@@ -385,6 +413,40 @@ export async function unmarkNoShow(actor: SessionUser, bookingId: string): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Pay-as-you-go
+// ---------------------------------------------------------------------------
+
+/**
+ * Tick a drop-in fee off as collected.
+ *
+ * Nothing here takes money — the gym collects it however it likes and this is
+ * the record of who has paid, so the roster shows the coach who still owes on
+ * the door. Only meaningful on pay-as-you-go classes.
+ */
+export async function setBookingPaid(
+  actor: SessionUser,
+  bookingId: string,
+  paid: boolean,
+  now: Date = new Date(),
+): Promise<Booking> {
+  assertCan(actor, 'markAttendance');
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { classInstance: { select: { payg: true } } },
+  });
+  if (!booking) throw notFound('That booking no longer exists.');
+  if (!booking.classInstance.payg) {
+    throw conflict('That class is covered by membership — there is nothing to collect.', 'NOT_PAYG');
+  }
+
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: paid ? { paidAt: now, paidById: actor.id } : { paidAt: null, paidById: null },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Class-level cancellation
 // ---------------------------------------------------------------------------
 
@@ -466,5 +528,55 @@ export async function restoreClassInstance(
   await prisma.classInstance.update({
     where: { id: classInstanceId },
     data: { status: 'SCHEDULED', cancelledAt: null, cancelledReason: null, cancelledById: null },
+  });
+}
+
+
+/** The facts about a class that decide whether a plan covers it. */
+function classFacts(instance: ClassInstance): ClassFacts {
+  return {
+    name: instance.name,
+    dayOfWeek: localWeekday(instance.date),
+    startTimeLocal: toLocalTime(instance.startsAt),
+    payg: instance.payg,
+  };
+}
+
+/**
+ * Work out what would pay for this booking: the member's plan, a class pass,
+ * or nothing. Counts the member's other bookings in the same Monday-to-Sunday
+ * week, since that is what the capped plans are measured against.
+ */
+async function resolveFor(
+  tx: Tx,
+  memberId: string,
+  instance: ClassInstance,
+  now: Date,
+) {
+  const week = localWeekBounds(instance.date);
+
+  const [membership, packs, bookingsThisWeek, membershipRow] = await Promise.all([
+    getMembershipState(memberId, now, tx),
+    getPacks(memberId, tx),
+    tx.booking.count({
+      where: {
+        memberId,
+        status: { not: 'CANCELLED' },
+        // Only classes the plan is meant to cover count toward its limit.
+        classInstance: { date: { gte: week.from, lte: week.to }, payg: false },
+        // A booking already paid for with a pass is not using the allowance.
+        passPackId: null,
+      },
+    }),
+    tx.membership.findUnique({ where: { userId: memberId } }),
+  ]);
+
+  return resolveEntitlement({
+    membership,
+    planKey: membershipRow?.planKey ?? null,
+    cls: classFacts(instance),
+    bookingsThisWeek,
+    packs: packs.map(toFacts),
+    now,
   });
 }

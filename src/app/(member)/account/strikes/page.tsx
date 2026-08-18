@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
@@ -112,6 +113,13 @@ export default async function StrikesPage() {
           </ul>
         )}
       </section>
+
+      <Link href="/account/membership" className="card block p-4 hover:border-white/30">
+        <p className="font-semibold">Membership</p>
+        <p className="mt-0.5 text-sm text-white/50">
+          See your plan, update your card, or download invoices.
+        </p>
+      </Link>
 
       <ChangePasswordForm />
 
