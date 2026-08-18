@@ -172,6 +172,14 @@ describe('plans that only cover some classes', () => {
     const cls = await createClass({ date: THU, startTimeLocal: '16:30', capacity: 10 });
     await expect(book(member, cls.id)).resolves.toMatchObject({ waitlisted: false });
   });
+
+  it('keeps Off Peak out of a Wednesday 9:30 if one is ever added', async () => {
+    // There is no Wednesday 9:30 on the timetable today. The plan states its
+    // days anyway, so adding one later does not quietly widen the plan.
+    const member = await createUser('MEMBER', 'Off Peaker', { plan: 'OFF_PEAK' });
+    const cls = await createClass({ date: WED, startTimeLocal: '09:30', capacity: 10 });
+    await expectRefused(book(member, cls.id));
+  });
 });
 
 describe('pay-as-you-go classes', () => {

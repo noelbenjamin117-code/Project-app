@@ -106,9 +106,17 @@ describe('planCoversClass', () => {
 
   it('holds Off Peak to the 9:30s and the Thursday 4:30', () => {
     const rules = getPlanRules('OFF_PEAK')!;
-    expect(planCoversClass(rules, cls({ dayOfWeek: 1, startTimeLocal: '09:30' }))).toBe(true);
-    expect(planCoversClass(rules, cls({ dayOfWeek: 5, startTimeLocal: '09:30' }))).toBe(true);
+    // Mon, Tue, Thu, Fri — the four mornings the gym runs a 9:30.
+    for (const day of [1, 2, 4, 5]) {
+      expect(planCoversClass(rules, cls({ dayOfWeek: day, startTimeLocal: '09:30' })), `day ${day}`).toBe(true);
+    }
     expect(planCoversClass(rules, cls({ dayOfWeek: 4, startTimeLocal: '16:30' }))).toBe(true);
+
+    // Wednesday has no 9:30 today. Stated as a rule so that adding one later
+    // does not silently widen the plan.
+    expect(planCoversClass(rules, cls({ dayOfWeek: 3, startTimeLocal: '09:30' }))).toBe(false);
+    // Nor the Sunday drop-in, which sits outside every plan twice over.
+    expect(planCoversClass(rules, cls({ dayOfWeek: 7, startTimeLocal: '09:30' }))).toBe(false);
     // The evening rush is exactly what they are not paying for.
     expect(planCoversClass(rules, cls({ dayOfWeek: 1, startTimeLocal: '18:30' }))).toBe(false);
     expect(planCoversClass(rules, cls({ dayOfWeek: 1, startTimeLocal: '06:00' }))).toBe(false);

@@ -104,10 +104,19 @@ export const gymConfig = {
       OFF_PEAK: {
         name: 'Off Peak',
         priceLabel: '£50.99 a month',
-        description: 'Train around the rush. 9:30am sessions and 4:30pm Thursdays.',
+        description:
+          'Train around the rush. 9:30am Mon, Tue, Thu, Fri — plus Thursday 4:30pm.',
         weeklyLimit: null,
-        // Any 9:30am class, plus the Thursday 4:30pm.
-        allows: [{ times: ['09:30'] }, { days: [4], times: ['16:30'] }],
+        // The 9:30s on Mon, Tue, Thu and Fri, plus the Thursday 4:30pm.
+        //
+        // The days are stated rather than allowing any 9:30, even though the
+        // only other 9:30 on the timetable is the Sunday drop-in (already
+        // outside every plan). Adding a Wednesday morning class later must not
+        // quietly hand it to Off Peak members.
+        allows: [
+          { days: [1, 2, 4, 5], times: ['09:30'] },
+          { days: [4], times: ['16:30'] },
+        ],
       },
     },
 

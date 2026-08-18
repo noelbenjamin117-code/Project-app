@@ -218,7 +218,7 @@ to say which. On the price, open **Additional options → Metadata** and add:
 | `b42_plan` | `TIER1` | 3 classes a week |
 | `b42_plan` | `TIER2` | 2 classes a week |
 | `b42_plan` | `HYROX_WF` | HYROX on Wednesday and Friday only |
-| `b42_plan` | `OFF_PEAK` | The 9:30s, plus Thursday 4:30pm |
+| `b42_plan` | `OFF_PEAK` | 9:30am Mon, Tue, Thu, Fri, plus Thursday 4:30pm |
 
 What each of those actually allows lives in `gym.config.ts` under
 `membership.plans` — change the weekly number or the times there, not in
