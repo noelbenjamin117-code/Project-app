@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { gymConfig } from '~/gym.config';
 import { getSessionUser } from '@/lib/auth';
 import { atLeast } from '@/lib/permissions';
 import { getStrikeState } from '@/lib/services/strikes';
@@ -11,6 +10,7 @@ import { StrikeBanner, MembershipBanner } from '@/components/strike-banner';
 import { MemberNav } from '@/components/member-nav';
 import { ServiceWorkerRegistrar } from '@/components/service-worker';
 import { signOut } from '@/app/actions/auth';
+import { Wordmark } from '@/components/wordmark';
 
 export default async function MemberLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
@@ -25,9 +25,7 @@ export default async function MemberLayout({ children }: { children: React.React
       <ServiceWorkerRegistrar />
       <header className="flex items-center justify-between px-5 pb-3 pt-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-brand">
-            {gymConfig.shortName}
-          </p>
+          <Wordmark />
           <h1 className="text-xl font-bold">{user.name.split(' ')[0]}</h1>
         </div>
         <div className="flex items-center gap-2">

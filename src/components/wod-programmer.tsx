@@ -288,7 +288,7 @@ export function WodProgrammer({
               <label className="flex items-center gap-3 self-end pb-3 text-sm text-white/70">
                 <input
                   type="checkbox"
-                  className="h-5 w-5 accent-[#f2542d]"
+                  className="h-5 w-5 accent-brand"
                   checked={isBenchmark}
                   onChange={(e) => setIsBenchmark(e.target.checked)}
                 />

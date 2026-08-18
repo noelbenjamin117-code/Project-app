@@ -146,7 +146,7 @@ export function TemplateEditor({
                     <label className="mt-3 flex items-start gap-3 rounded-lg border border-edge bg-ink p-3 text-sm">
                       <input
                         type="checkbox"
-                        className="mt-0.5 h-4 w-4 accent-[#f2542d]"
+                        className="mt-0.5 h-4 w-4 accent-brand"
                         checked={applyToFuture}
                         onChange={(e) => setApplyToFuture(e.target.checked)}
                       />

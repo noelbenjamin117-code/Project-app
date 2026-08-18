@@ -5,6 +5,7 @@ import { serverConfigProblems } from '@/lib/config-check';
 import { DEFAULT_TEMPLATE_SHAPES } from '@/lib/bootstrap';
 import { ConfigProblems } from '@/components/config-problems';
 import { SetupForm } from './setup-form';
+import { Wordmark } from '@/components/wordmark';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,9 +28,7 @@ export default async function SetupPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12">
       <div className="mb-8">
-        <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-          {gymConfig.shortName}
-        </p>
+        <Wordmark size="md" />
         <h1 className="mt-2 text-3xl font-bold">Set up your gym</h1>
         <p className="mt-2 text-white/50">
           This creates your owner account. It only works once — after this, the page is closed

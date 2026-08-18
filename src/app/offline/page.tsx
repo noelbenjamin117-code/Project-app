@@ -1,4 +1,4 @@
-import { gymConfig } from '~/gym.config';
+import { Wordmark } from '@/components/wordmark';
 
 /**
  * The offline shell the service worker falls back to. Deliberately does not
@@ -8,9 +8,7 @@ import { gymConfig } from '~/gym.config';
 export default function OfflinePage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6 text-center">
-      <p className="text-sm font-semibold uppercase tracking-widest text-brand">
-        {gymConfig.shortName}
-      </p>
+      <Wordmark size="md" className="mx-auto" />
       <h1 className="mt-3 text-2xl font-bold">You're offline</h1>
       <p className="mt-2 text-white/50">
         Booking and check-in need a connection, so we won't show you a schedule that might be out

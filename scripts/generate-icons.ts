@@ -6,19 +6,31 @@
  * data, and this keeps an image-processing dependency out of the build for one
  * asset that changes almost never.
  *
- * Run with: node scripts/generate-icons.mjs
+ * The colour comes from src/lib/theme.ts, so the home-screen icon follows the
+ * brand rather than being a second copy of it that goes stale.
+ *
+ * This is a placeholder mark. Once the gym's own logo is in `public/logo.svg`,
+ * export it to 192px and 512px PNGs and replace public/icon-*.png — nothing
+ * here can turn an SVG into a raster.
+ *
+ * Run with: npm run icons
  */
 import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { THEME, rgb } from '../src/lib/theme';
 
-const BRAND = [0xf2, 0x54, 0x2d];
-const WHITE = [0xff, 0xff, 0xff];
+type Rgb = [number, number, number];
 
-function crc32(buffer) {
-  let table = crc32.table;
+const BRAND: Rgb = rgb(THEME.brand);
+const WHITE: Rgb = [0xff, 0xff, 0xff];
+
+let crcTable: Int32Array | null = null;
+
+function crc32(buffer: Buffer): number {
+  let table = crcTable;
   if (!table) {
-    table = crc32.table = new Int32Array(256);
+    table = crcTable = new Int32Array(256);
     for (let i = 0; i < 256; i++) {
       let c = i;
       for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -30,7 +42,7 @@ function crc32(buffer) {
   return (crc ^ -1) >>> 0;
 }
 
-function chunk(type, data) {
+function chunk(type: string, data: Buffer): Buffer {
   const length = Buffer.alloc(4);
   length.writeUInt32BE(data.length);
   const typeAndData = Buffer.concat([Buffer.from(type, 'ascii'), data]);
@@ -39,7 +51,7 @@ function chunk(type, data) {
   return Buffer.concat([length, typeAndData, crc]);
 }
 
-function png(size, pixelAt) {
+function png(size: number, pixelAt: (x: number, y: number, size: number) => Rgb): Buffer {
   // Each scanline is prefixed with a filter byte (0 = none).
   const raw = Buffer.alloc(size * (size * 3 + 1));
   let offset = 0;
@@ -71,7 +83,7 @@ function png(size, pixelAt) {
 }
 
 /** Brand field with a white barbell: a centre bar and two plates. */
-function barbell(x, y, size) {
+function barbell(x: number, y: number, size: number): Rgb {
   const u = size / 32; // design grid
   const cx = x / u;
   const cy = y / u;
@@ -96,7 +108,7 @@ for (const size of [192, 512]) {
 // Maskable icon: same mark, inset so platform-applied masks never clip it.
 writeFileSync(
   join(outDir, 'icon-maskable-512.png'),
-  png(512, (x, y, size) => {
+  png(512, (x, y, size): Rgb => {
     const inset = size * 0.1;
     const inner = size - inset * 2;
     if (x < inset || y < inset || x >= size - inset || y >= size - inset) return BRAND;

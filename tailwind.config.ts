@@ -1,18 +1,13 @@
 import type { Config } from 'tailwindcss';
+import { THEME } from './src/lib/theme';
 
 export default {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
-      colors: {
-        ink: '#0b0d10',
-        panel: '#14181d',
-        edge: '#232a32',
-        brand: '#f2542d',
-        ok: '#2f9e69',
-        warn: '#d99117',
-        bad: '#d2453f',
-      },
+      // B42's colours, defined in src/lib/theme.ts so the app, the PWA
+      // manifest and the home-screen icon all read the same values.
+      colors: THEME,
       fontFamily: {
         sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },

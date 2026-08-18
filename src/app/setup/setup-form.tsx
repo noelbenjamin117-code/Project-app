@@ -96,7 +96,7 @@ export function SetupForm({
             type="checkbox"
             name="includeSchedule"
             defaultChecked
-            className="mt-0.5 h-5 w-5 accent-[#f2542d]"
+            className="mt-0.5 h-5 w-5 accent-brand"
           />
           <span className="text-white/70">
             Create my weekly schedule
@@ -113,7 +113,7 @@ export function SetupForm({
             type="checkbox"
             name="includeBenchmarks"
             defaultChecked
-            className="mt-0.5 h-5 w-5 accent-[#f2542d]"
+            className="mt-0.5 h-5 w-5 accent-brand"
           />
           <span className="text-white/70">
             Add the benchmark WODs

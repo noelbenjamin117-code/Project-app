@@ -8,6 +8,16 @@ export const gymConfig = {
   shortName: 'B42',
 
   /**
+   * The gym's logo, served from the `public/` folder.
+   *
+   * Put your file at `public/logo.svg` and it appears in the app header, on
+   * the login screen and on the gym TV. Using a different name or format?
+   * Change this path to match — e.g. '/logo.png'. Set it to null to go back
+   * to showing the gym's short name as text.
+   */
+  logo: '/logo.svg' as string | null,
+
+  /**
    * The one timezone the gym operates in. Every timestamp is stored in UTC and
    * rendered through this zone. Changing it would reinterpret every existing
    * class time, so treat it as fixed after launch.

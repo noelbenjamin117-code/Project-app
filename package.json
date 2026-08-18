@@ -15,6 +15,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "classes:generate": "tsx scripts/generate-classes.ts",
+    "icons": "tsx scripts/generate-icons.ts",
     "build:local": "prisma generate && next build"
   },
   "prisma": {
